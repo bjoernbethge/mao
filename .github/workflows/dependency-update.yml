@@ -5,6 +5,10 @@ on:
     - cron: '0 0 * * 1'  # Every Monday at midnight
   workflow_dispatch:  # Enables manual execution
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   update-dependencies:
     runs-on: ubuntu-latest
@@ -50,4 +54,5 @@ jobs:
             Updated automatically by the Dependency Update workflow.
           branch: dependency-update
           labels: dependencies
-          base: main 
+          base: main
+          token: ${{ secrets.GITHUB_TOKEN }} 
