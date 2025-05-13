@@ -1,9 +1,25 @@
 FROM python:3.11-slim-bookworm
 
+# Define build arguments for environment variables
+ARG OPENAI_API_KEY
+ARG ANTHROPIC_API_KEY
+ARG QDRANT_URL
+ARG EMBEDDING_MODEL
+ARG MCP_DB_PATH
+ARG MCP_CONFIG_PATH
+ARG OLLAMA_HOST
+
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PORT=8000
+    PORT=8000 \
+    OPENAI_API_KEY=${OPENAI_API_KEY} \
+    ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY} \
+    QDRANT_URL=${QDRANT_URL} \
+    EMBEDDING_MODEL=${EMBEDDING_MODEL} \
+    MCP_DB_PATH=${MCP_DB_PATH} \
+    MCP_CONFIG_PATH=${MCP_CONFIG_PATH} \
+    OLLAMA_HOST=${OLLAMA_HOST}
 
 # Install uv from the official Astral image
 COPY --from=ghcr.io/astral-sh/uv:0.7.3 /uv /uvx /bin/

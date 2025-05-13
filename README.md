@@ -126,6 +126,36 @@ DOCKER_BUILDKIT=1 docker build -t mao-api -f docker/Dockerfile.api .
 
 # Run with mounted source directory for development
 docker run -p 8000:8000 -v ./data:/data -v ./.env:/app/.env mao-api
+
+# Pass environment variables directly
+docker run -p 8000:8000 \
+  -e OPENAI_API_KEY=sk-... \
+  -e ANTHROPIC_API_KEY=sk-... \
+  -e QDRANT_URL=http://localhost:6333 \
+  mao-api
+
+# Or use the --env-file option
+docker run -p 8000:8000 --env-file .env mao-api
+```
+
+### Docker Compose with Environment Variables
+
+You can also use Docker Compose to manage environment variables:
+
+```yaml
+version: '3'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+    env_file:
+      - .env
 ```
 
 ## API Example
@@ -220,6 +250,24 @@ This project uses GitHub Actions for continuous integration and deployment:
 - **Docker Multi-Platform Build** - Creates Docker images for multiple platforms (amd64, arm64).
 - **Dependency Updates** - Automatically updates project dependencies weekly.
 - **Package Publishing** - Publishes the package to PyPI on new releases.
+
+### Environment Variables and Secrets
+
+To use environment variables in GitHub Actions workflows, you need to add them as GitHub Secrets:
+
+1. Go to your GitHub repository
+2. Navigate to Settings > Secrets and variables > Actions
+3. Click on "New repository secret"
+4. Add each environment variable from your `.env` file:
+   - `OPENAI_API_KEY`
+   - `ANTHROPIC_API_KEY`
+   - `QDRANT_URL`
+   - `EMBEDDING_MODEL`
+   - `MCP_DB_PATH`
+   - `MCP_CONFIG_PATH`
+   - `OLLAMA_HOST`
+
+These secrets are then passed to the Docker build process as build arguments and set as environment variables in the container.
 
 ### Workflow Execution
 
