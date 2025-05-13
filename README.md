@@ -209,6 +209,31 @@ response = await client.post(
   </p>
 </div>
 
+## CI/CD with GitHub Actions
+
+This project uses GitHub Actions for continuous integration and deployment:
+
+### Workflows
+
+- **Test and Lint** - Runs tests, linting, and type checking on every push and pull request.
+- **Docker Build** - Builds and publishes Docker images on pushes to the main branch and tags.
+- **Docker Multi-Platform Build** - Creates Docker images for multiple platforms (amd64, arm64).
+- **Dependency Updates** - Automatically updates project dependencies weekly.
+- **Package Publishing** - Publishes the package to PyPI on new releases.
+
+### Workflow Execution
+
+```bash
+# Manually run the dependency update workflow
+gh workflow run dependency-update.yml
+
+# Manually publish a version
+gh workflow run publish.yml -f version=0.2.0
+
+# Manually run multi-platform Docker build
+gh workflow run docker-multi-platform.yml -f platforms=linux/amd64,linux/arm64,linux/arm/v7
+```
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
