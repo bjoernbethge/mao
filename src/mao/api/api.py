@@ -23,7 +23,8 @@ async def get_config_db() -> AsyncGenerator[ConfigDB, None]:
     Dependency for accessing the configuration database.
     Will be automatically closed after the request is processed.
     """
-    db_path = os.environ.get("MCP_DB_PATH", "mcp_config.duckdb")
+    db_path_env = os.environ.get("MCP_DB_PATH")
+    db_path = db_path_env if db_path_env is not None else "mcp_config.duckdb"
     db = await ConfigDB.get_instance(db_path=db_path)
     try:
         yield db
@@ -140,7 +141,9 @@ class MCPAgentsAPI(FastAPI):
         Dependency for accessing the configuration database.
         Will be automatically closed after the request is processed.
         """
-        db = await ConfigDB.get_instance(db_path=self.db_path)
+        db_path_env = os.environ.get("MCP_DB_PATH")
+        db_path = db_path_env if db_path_env is not None else "mcp_config.duckdb"
+        db = await ConfigDB.get_instance(db_path=db_path)
         try:
             yield db
         except Exception as e:

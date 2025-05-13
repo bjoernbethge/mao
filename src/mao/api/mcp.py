@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 
 from .db import ConfigDB
 from .models import (
@@ -276,7 +277,7 @@ async def get_mcp_config(
 
 @router.post("/export-config", status_code=200)
 async def export_mcp_config(
-    filepath: Optional[str] = None,
+    filepath: Optional[Path] = None,
     enabled_only: bool = True,
     db: ConfigDB = Depends(get_config_db),
 ):
@@ -326,11 +327,15 @@ async def get_mcp_config_file(db: ConfigDB = Depends(get_config_db)):
     temp_file = Path("temp_mcp_config.json")
 
     # Generate the config file
-    await export_mcp_config(filepath=str(temp_file), db=db)
+    await export_mcp_config(filepath=temp_file, db=db)
+
+    def cleanup():
+        if temp_file.exists():
+            os.remove(temp_file)
 
     return FileResponse(
         path=temp_file,
         filename="mcp.json",
         media_type="application/json",
-        background=lambda: os.remove(temp_file) if temp_file.exists() else None,
+        background=BackgroundTask(cleanup),
     )

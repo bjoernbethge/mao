@@ -116,7 +116,7 @@ async def update_team_by_id(
             )
 
     update_data = {k: v for k, v in team.model_dump().items() if v is not None}
-    if update_data:
+    if isinstance(update_data, dict) and update_data:
         await db.update_team(team_id, **update_data)
 
     return await db.get_team(team_id)
@@ -521,8 +521,9 @@ async def start_team(team_id: str, db: ConfigDB = Depends(get_config_db)):
                 }
 
                 # Add any additional configuration from the supervisor_config.config field
-                if supervisor_config.get("config"):
-                    supervisor_params.update(supervisor_config.get("config"))
+                config_value = supervisor_config.get("config")
+                if isinstance(config_value, dict):
+                    supervisor_params.update(config_value)
 
                 # Create the supervisor
                 supervisor = Supervisor(
@@ -634,10 +635,11 @@ async def chat_with_team(
     # Create supervisor
     try:
         supervisor = Supervisor(
-            agent=active_agents[agent_id]["agent"],
-            strategy=supervisor_config["strategy"],
-            add_handoff_back_messages=supervisor_config["add_handoff_back_messages"],
-            parallel_tool_calls=supervisor_config["parallel_tool_calls"],
+            agents=[active_agents[agent_id]["agent"]],
+            supervisor_provider=active_agents[agent_id]["config"]["provider"],
+            supervisor_model_name=active_agents[agent_id]["config"]["model_name"],
+            supervisor_system_prompt=supervisor_config.get("system_prompt")
+            or "You are a supervisor that coordinates a team of specialized agents.",
         )
 
         # Add team members to supervisor
@@ -680,16 +682,22 @@ async def chat_with_team(
                     continue  # Skip this member
 
             # Add member to supervisor
-            supervisor.add_agent(
-                agent=active_agents[member_agent_id]["agent"],
-                role=member["role"],
-                order=member.get("order_index"),
-            )
+            if hasattr(supervisor, "add_agent"):
+                supervisor.add_agent(
+                    agent=active_agents[member_agent_id]["agent"],
+                    role=member["role"],
+                    order=member.get("order_index"),
+                )
 
         # Send message to supervisor
         thread_id = message.thread_id or f"team_{team_id}_thread_{uuid.uuid4().hex}"
 
-        response = await supervisor.run(message.content, thread_id=thread_id)
+        if hasattr(supervisor, "run"):
+            response = await supervisor.run(message.content, thread_id=thread_id)
+        else:
+            raise HTTPException(
+                status_code=500, detail="Supervisor does not have a run method"
+            )
 
         return {"response": response, "thread_id": thread_id}
     except Exception as e:

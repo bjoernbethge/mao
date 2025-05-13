@@ -233,7 +233,7 @@ class ConfigDB:
     ) -> Dict[str, Any]:
         """Process a database result into a dictionary"""
         if result is None:
-            return None
+            return {}
 
         # Define column mappings for each table
         column_mappings = {
@@ -427,7 +427,7 @@ class ConfigDB:
         """Lists all agents asynchronously, with optional pagination"""
         async with self.async_connection() as conn:
             query = "SELECT * FROM agents"
-            params = []
+            params: list[Any] = []
 
             if limit is not None:
                 query += " LIMIT ?"
@@ -452,7 +452,7 @@ class ConfigDB:
         async with self.async_connection() as conn:
             # Build the SET clause and parameters
             set_clauses = []
-            params = []
+            params: list[Any] = []
 
             for key, value in kwargs.items():
                 if key == "llm_specific_kwargs":
@@ -542,7 +542,7 @@ class ConfigDB:
         """Lists all teams asynchronously, optionally filtered"""
         async with self.async_connection() as conn:
             query = "SELECT * FROM teams"
-            params = []
+            params: list[Any] = []
 
             conditions = []
             if supervisor_id:
@@ -598,7 +598,7 @@ class ConfigDB:
         async with self.async_connection() as conn:
             # Build the SET clause and parameters
             set_clauses = []
-            params = []
+            params: list[Any] = []
 
             for key, value in kwargs.items():
                 if key == "config":
@@ -721,7 +721,7 @@ class ConfigDB:
         async with self.async_connection() as conn:
             # Build the SET clause and parameters
             set_clauses = []
-            params = []
+            params: list[Any] = []
 
             for key, value in kwargs.items():
                 if key == "params":
@@ -830,7 +830,7 @@ class ConfigDB:
         async with self.async_connection() as conn:
             # Build the SET clause and parameters
             set_clauses = []
-            params = []
+            params: list[Any] = []
 
             for key, value in kwargs.items():
                 if key == "config":
@@ -915,7 +915,7 @@ class ConfigDB:
         """Lists all servers asynchronously, optionally filtered by enabled status"""
         async with self.async_connection() as conn:
             query = "SELECT * FROM mcp_servers"
-            params = []
+            params: list[Any] = []
 
             if enabled_only:
                 query += " WHERE enabled = TRUE"
@@ -1012,7 +1012,7 @@ class ConfigDB:
         """Lists all tools asynchronously, optionally filtered"""
         async with self.async_connection() as conn:
             query = "SELECT * FROM tools"
-            params = []
+            params: list[Any] = []
 
             conditions = []
             if server_id:
@@ -1038,7 +1038,7 @@ class ConfigDB:
         async with self.async_connection() as conn:
             # Build the SET clause and parameters
             set_clauses = []
-            params = []
+            params: list[Any] = []
 
             for key, value in kwargs.items():
                 if key == "parameters":
@@ -1178,3 +1178,66 @@ class ConfigDB:
             for db_path, instance in cls._instances.items():
                 await instance.close_async()
             cls._instances.clear()
+
+    # --- Global Config Methods (Stubs für API-Kompatibilität und mypy) ---
+    def set_config(
+        self, key: str, value: Any, description: Optional[str] = None
+    ) -> None:
+        """Set a global configuration value."""
+        with self.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO global_configs (key, value, description, updated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value, description=excluded.description, updated_at=CURRENT_TIMESTAMP
+                """,
+                [key, json.dumps(value), description],
+            )
+
+    def get_config(self, key: str) -> Optional[Any]:
+        """Get a global configuration value by key."""
+        with self.connection() as conn:
+            result = conn.execute(
+                "SELECT value FROM global_configs WHERE key = ?", [key]
+            ).fetchone()
+            if result:
+                try:
+                    return json.loads(result[0])
+                except Exception:
+                    return result[0]
+            return None
+
+    def delete_config(self, key: str) -> None:
+        """Delete a global configuration value by key."""
+        with self.connection() as conn:
+            conn.execute("DELETE FROM global_configs WHERE key = ?", [key])
+
+    def export_config(self, export_path: Optional[str] = None) -> str:
+        """Export all global configs to a JSON file."""
+        with self.connection() as conn:
+            results = conn.execute(
+                "SELECT key, value, description FROM global_configs"
+            ).fetchall()
+            configs = [
+                {
+                    "key": row[0],
+                    "value": json.loads(row[1]) if row[1] else None,
+                    "description": row[2],
+                }
+                for row in results
+            ]
+            export_file = export_path or "mcp_config_export.json"
+            with open(export_file, "w", encoding="utf-8") as f:
+                json.dump(configs, f, indent=2)
+            return export_file
+
+    def import_config(self, import_path: str) -> bool:
+        """Import global configs from a JSON file."""
+        if not os.path.exists(import_path):
+            return False
+        with open(import_path, "r", encoding="utf-8") as f:
+            configs = json.load(f)
+        with self.connection():
+            for entry in configs:
+                self.set_config(entry["key"], entry["value"], entry.get("description"))
+        return True

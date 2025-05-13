@@ -2,7 +2,7 @@
 KnowledgeTree and ExperienceTree: Qdrant-based vector stores for agent knowledge and experience.
 """
 
-from typing import List, Dict, Any, Optional, Tuple, TypedDict, Callable
+from typing import List, Dict, Any, Optional, Tuple, TypedDict, Callable, Awaitable
 import logging
 import os
 import uuid
@@ -58,35 +58,43 @@ class EmbeddingProvider:
     @staticmethod
     async def create_embeddings() -> Tuple[Embeddings, int]:
         """Create embedding model and return it with its dimension"""
-        embed_dim = None
-
         # First try OpenAI models (most reliable dimensions)
         try:
             if "text-embedding-3" in EMBED_MODEL:
-                embed = OpenAIEmbeddings(model=EMBED_MODEL, dimensions=1536)
-                embed_dim = embed.dimensions
+                openai_embed: Embeddings = OpenAIEmbeddings(
+                    model=EMBED_MODEL, dimensions=1536
+                )
+                if (
+                    hasattr(openai_embed, "dimensions")
+                    and getattr(openai_embed, "dimensions") is not None
+                ):
+                    embed_dim = int(getattr(openai_embed, "dimensions"))
+                else:
+                    embed_dim = 1536
                 logging.info(
                     f"Using OpenAI embeddings: {EMBED_MODEL} with dimensions {embed_dim}"
                 )
-                return embed, embed_dim
+                return openai_embed, embed_dim
         except Exception as e:
             logging.info(f"Could not use OpenAI embeddings: {e}")
 
         # Finally try FastEmbed
         try:
-            embed = FastEmbedEmbeddings(model_name="BAAI/bge-small-en-v1.5", parallel=0)
+            fast_embed: Embeddings = FastEmbedEmbeddings(
+                model_name="BAAI/bge-small-en-v1.5", parallel=0
+            )
             # Try to get dimension from model properties
-            if hasattr(embed, "embedding_size") and embed.embedding_size:
-                embed_dim = embed.embedding_size
-            elif hasattr(embed, "dim") and embed.dim:
-                embed_dim = embed.dim
+            if hasattr(fast_embed, "embedding_size") and fast_embed.embedding_size:
+                embed_dim = int(fast_embed.embedding_size)
+            elif hasattr(fast_embed, "dim") and fast_embed.dim:
+                embed_dim = int(fast_embed.dim)
             else:
                 # Infer from a test embedding
-                embed_dim = len(embed.embed_query("test"))
+                embed_dim = len(fast_embed.embed_query("test"))
             logging.info(
-                f"Using FastEmbed embeddings: {embed.model_name} with dimensions {embed_dim}"
+                f"Using FastEmbed embeddings: BAAI/bge-small-en-v1.5 with dimensions {embed_dim}"
             )
-            return embed, embed_dim
+            return fast_embed, embed_dim
         except Exception as e:
             logging.error(f"Failed to initialize any embedding model: {e}")
             raise RuntimeError(f"Could not initialize any embedding model: {e}")
@@ -113,7 +121,9 @@ class VectorStoreBase:
         url: str = QDRANT_URL,
         collection_name: str = "default_collection",
         recreate_on_dim_mismatch: bool = False,
-        embedding_provider: Optional[Callable[[], Tuple[Embeddings, int]]] = None,
+        embedding_provider: Optional[
+            Callable[[], Awaitable[Tuple[Embeddings, int]]]
+        ] = None,
     ):
         self.collection_name = collection_name
         self.qdrant_url = url
@@ -127,8 +137,8 @@ class VectorStoreBase:
         self.async_client = AsyncQdrantClient(url=self.qdrant_url)
 
         # Initialize embeddings (will be set in async_init)
-        self.embed = None
-        self.embed_dim = None
+        self.embed: Optional[Embeddings] = None
+        self.embed_dim: Optional[int] = None
         self._embedding_provider = (
             embedding_provider or EmbeddingProvider.create_embeddings
         )
@@ -136,10 +146,8 @@ class VectorStoreBase:
     async def async_init(self) -> "VectorStoreBase":
         """Async initialization method"""
         self.embed, self.embed_dim = await self._embedding_provider()
-
         # Ensure collection exists
         await self._ensure_collection_async()
-
         logging.info(
             f"{self.__class__.__name__}: Using embedding dim {self.embed_dim} "
             f"for collection '{self.collection_name}' at {self.qdrant_url}"
@@ -152,7 +160,9 @@ class VectorStoreBase:
         url: str = QDRANT_URL,
         collection_name: str = "default_collection",
         recreate_on_dim_mismatch: bool = False,
-        embedding_provider: Optional[Callable[[], Tuple[Embeddings, int]]] = None,
+        embedding_provider: Optional[
+            Callable[[], Awaitable[Tuple[Embeddings, int]]]
+        ] = None,
     ) -> "VectorStoreBase":
         """Factory method for async initialization"""
         instance = cls(
@@ -173,9 +183,17 @@ class VectorStoreBase:
                 col_dim = None
 
                 if isinstance(vectors_cfg, dict) and self.vector_name in vectors_cfg:
-                    col_dim = vectors_cfg[self.vector_name].size
+                    v = vectors_cfg[self.vector_name]
+                    if isinstance(v, VectorParams):
+                        col_dim = v.size
+                    else:
+                        col_dim = None
                 elif hasattr(vectors_cfg, "size"):
-                    col_dim = vectors_cfg.size
+                    s = getattr(vectors_cfg, "size", None)
+                    if isinstance(s, int):
+                        col_dim = s
+                    else:
+                        col_dim = None
 
                 if col_dim is None:
                     logging.warning(
@@ -192,7 +210,12 @@ class VectorStoreBase:
                             collection_name=self.collection_name,
                             vectors_config={
                                 self.vector_name: VectorParams(
-                                    size=self.embed_dim, distance=Distance.COSINE
+                                    size=(
+                                        self.embed_dim
+                                        if self.embed_dim is not None
+                                        else 1536
+                                    ),
+                                    distance=Distance.COSINE,
                                 )
                             },
                         )
@@ -208,7 +231,8 @@ class VectorStoreBase:
                     collection_name=self.collection_name,
                     vectors_config={
                         self.vector_name: VectorParams(
-                            size=self.embed_dim, distance=Distance.COSINE
+                            size=self.embed_dim if self.embed_dim is not None else 1536,
+                            distance=Distance.COSINE,
                         )
                     },
                 )
@@ -243,9 +267,17 @@ class VectorStoreBase:
                 col_dim = None
 
                 if isinstance(vectors_cfg, dict) and self.vector_name in vectors_cfg:
-                    col_dim = vectors_cfg[self.vector_name].size
+                    v = vectors_cfg[self.vector_name]
+                    if isinstance(v, VectorParams):
+                        col_dim = v.size
+                    else:
+                        col_dim = None
                 elif hasattr(vectors_cfg, "size"):
-                    col_dim = vectors_cfg.size
+                    s = getattr(vectors_cfg, "size", None)
+                    if isinstance(s, int):
+                        col_dim = s
+                    else:
+                        col_dim = None
 
                 if col_dim is None:
                     logging.warning(
@@ -262,7 +294,12 @@ class VectorStoreBase:
                             collection_name=self.collection_name,
                             vectors_config={
                                 self.vector_name: VectorParams(
-                                    size=self.embed_dim, distance=Distance.COSINE
+                                    size=(
+                                        self.embed_dim
+                                        if self.embed_dim is not None
+                                        else 1536
+                                    ),
+                                    distance=Distance.COSINE,
                                 )
                             },
                         )
@@ -278,7 +315,8 @@ class VectorStoreBase:
                     collection_name=self.collection_name,
                     vectors_config={
                         self.vector_name: VectorParams(
-                            size=self.embed_dim, distance=Distance.COSINE
+                            size=self.embed_dim if self.embed_dim is not None else 1536,
+                            distance=Distance.COSINE,
                         )
                     },
                 )
@@ -318,17 +356,7 @@ class VectorStoreBase:
                     and collection_info.status == "green"
                 ):
                     return True
-
-                # Alternatively check health
-                try:
-                    health = await self.async_client.health()
-                    if health and health.status == "ok":
-                        return True
-                except Exception:
-                    pass
-
                 await asyncio.sleep(check_interval)
-
             return False
         except Exception as e:
             logging.warning(f"Error checking index status: {e}")
@@ -342,14 +370,9 @@ class VectorStoreBase:
     async def add_entry_async(self, text: str, tags: Optional[List[str]] = None) -> str:
         """
         Add entry to vector store asynchronously.
-
-        Args:
-            text: Text content to embed and store
-            tags: Optional tags to attach to entry
-
-        Returns:
-            str: ID of the created entry
         """
+        if self.embed is None or self.embed_dim is None:
+            raise RuntimeError("Embeddings not initialized. Call async_init() first.")
         point_id = str(uuid.uuid4())
         try:
             # Embed query (still sync due to model limitations)
@@ -359,9 +382,7 @@ class VectorStoreBase:
                     f"CRITICAL: Embedding vector for entry '{point_id}' has dim {len(vector)}, "
                     f"but collection expects {self.embed_dim}!"
                 )
-
             payload = {"text": text, "tags": tags or []}
-
             # Async upsert
             await self.async_client.upsert(
                 collection_name=self.collection_name,
@@ -372,10 +393,8 @@ class VectorStoreBase:
                 ],
                 wait=True,
             )
-
             # Small delay to ensure index is updated
             await asyncio.sleep(0.1)
-
             logging.info(f"Added entry {point_id} to {self.collection_name}.")
             return point_id
         except RetryError as e:
@@ -400,24 +419,14 @@ class VectorStoreBase:
     async def search_async(self, query: str, k: int = 3) -> List[SearchResult]:
         """
         Search for similar vectors asynchronously.
-
-        Args:
-            query: Query text to search for
-            k: Number of results to return
-
-        Returns:
-            List[SearchResult]: List of search results with scores and metadata
         """
-        # Ensure index is updated
         await self.wait_for_index(timeout=1.0)
-
+        if self.embed is None:
+            raise RuntimeError("Embeddings not initialized. Call async_init() first.")
         try:
-            # Embed query (still sync due to model limitations)
             vector = self.embed.embed_query(query)
-
-            # Try multiple query formats with fallbacks
+            results: Any = []
             try:
-                # Modern format for vector name
                 results = await self.async_client.query_points(
                     collection_name=self.collection_name,
                     query_vector=(self.vector_name, vector),
@@ -426,7 +435,6 @@ class VectorStoreBase:
                 )
             except Exception as e1:
                 try:
-                    # Legacy dict format
                     results = await self.async_client.query_points(
                         collection_name=self.collection_name,
                         query_vector={self.vector_name: vector},
@@ -435,28 +443,30 @@ class VectorStoreBase:
                     )
                 except Exception as e2:
                     try:
-                        # Scroll as last resort (not vector search but returns latest)
                         scroll_results = await self.async_client.scroll(
                             collection_name=self.collection_name,
                             limit=k,
                             with_payload=True,
                         )
-                        if hasattr(scroll_results, "points"):
-                            results = scroll_results.points
+                        if (
+                            isinstance(scroll_results, tuple)
+                            and len(scroll_results) > 0
+                        ):
+                            scroll_results_list: list[Any] = list(scroll_results[0])
+                            results = scroll_results_list
+                        elif hasattr(scroll_results, "points"):
+                            results = list(getattr(scroll_results, "points", []))
                         else:
-                            # Handle different scroll result formats
-                            results = scroll_results[0] if scroll_results else []
+                            results = []
                     except Exception as e3:
                         logging.error(f"All search attempts failed: {e1}, {e2}, {e3}")
                         return []
-
-            # Format results
             formatted_hits: List[SearchResult] = []
             for r in results:
                 try:
-                    payload = r.payload if hasattr(r, "payload") and r.payload else {}
+                    payload = getattr(r, "payload", {}) or {}
                     formatted_hit: SearchResult = {
-                        "id": str(r.id),
+                        "id": str(getattr(r, "id", "")),
                         "score": getattr(r, "score", 1.0),
                         "page_content": payload.get("text", ""),
                         "tags": payload.get("tags", []),
@@ -465,14 +475,13 @@ class VectorStoreBase:
                     formatted_hits.append(formatted_hit)
                 except Exception as e:
                     logging.warning(f"Skipping malformed search result: {e}")
-
             return formatted_hits
         except Exception as e:
             logging.error(f"Search failed in '{self.collection_name}': {e}")
             return []
 
     # Synchronous wrapper for backward compatibility
-    def search(self, query: str, k: int = 3) -> List[Dict[str, Any]]:
+    def search(self, query: str, k: int = 3) -> List[SearchResult]:
         """Synchronous wrapper for search_async"""
         return asyncio.run(self.search_async(query, k))
 
@@ -556,7 +565,11 @@ class VectorStoreBase:
     # Synchronous wrapper
     def clear_all_points(self) -> bool:
         """Synchronous wrapper for clear_all_points_async"""
-        return asyncio.run(self.clear_all_points_async())
+        try:
+            asyncio.run(self.clear_all_points_async())
+            return True
+        except Exception:
+            return False
 
     async def add_tag_async(self, point_id: str, tag: str) -> bool:
         """Add tag to entry asynchronously"""
@@ -695,19 +708,15 @@ class VectorStoreBase:
         """Add multiple entries in batch asynchronously"""
         if not texts:
             return []
-
         if tags_list and len(texts) != len(tags_list):
             raise ValueError(
                 f"Number of texts ({len(texts)}) must match number of tag lists ({len(tags_list)})"
             )
-
         point_ids = [str(uuid.uuid4()) for _ in range(len(texts))]
-
+        if self.embed is None:
+            raise RuntimeError("Embeddings not initialized. Call async_init() first.")
         try:
-            # Use batch embedding
             vectors = list(self.embed.embed_documents(texts))
-
-            # Create batch points
             points = []
             for i, (text, vector) in enumerate(zip(texts, vectors)):
                 tags = tags_list[i] if tags_list and i < len(tags_list) else []
@@ -719,19 +728,15 @@ class VectorStoreBase:
                         payload=payload,
                     )
                 )
-
-            # Process in batches
             for i in range(0, len(points), BATCH_SIZE):
                 batch = points[i : i + BATCH_SIZE]
                 await self.async_client.upsert(
                     collection_name=self.collection_name, points=batch, wait=True
                 )
-
             logging.info(
                 f"Added {len(texts)} entries in batch to {self.collection_name}"
             )
             return point_ids
-
         except Exception as e:
             logging.error(f"Failed to add entries in batch: {e}")
             raise QdrantOperationError(f"Failed to add entries in batch: {e}") from e
@@ -848,14 +853,17 @@ class KnowledgeTree(VectorStoreBase):
         url: str = QDRANT_URL,
         collection_name: str = "knowledge_tree",
         recreate_on_dim_mismatch: bool = False,
-        embedding_provider: Optional[Callable[[], Tuple[Embeddings, int]]] = None,
+        embedding_provider: Optional[
+            Callable[[], Awaitable[Tuple[Embeddings, int]]]
+        ] = None,
     ) -> "KnowledgeTree":
         """Factory method for async initialization"""
         instance = cls(url, collection_name, recreate_on_dim_mismatch)
         instance._embedding_provider = (
             embedding_provider or EmbeddingProvider.create_embeddings
         )
-        return await instance.async_init()
+        await instance.async_init()
+        return instance
 
     async def learn_from_experience_async(
         self,
@@ -933,14 +941,17 @@ class ExperienceTree(KnowledgeTree):
         url: str = QDRANT_URL,
         collection_name: str = "experience_tree",
         recreate_on_dim_mismatch: bool = False,
-        embedding_provider: Optional[Callable[[], Tuple[Embeddings, int]]] = None,
+        embedding_provider: Optional[
+            Callable[[], Awaitable[Tuple[Embeddings, int]]]
+        ] = None,
     ) -> "ExperienceTree":
         """Factory method for async initialization"""
         instance = cls(url, collection_name, recreate_on_dim_mismatch)
         instance._embedding_provider = (
             embedding_provider or EmbeddingProvider.create_embeddings
         )
-        return await instance.async_init()
+        await instance.async_init()
+        return instance
 
 
 # Example usage (optional, for testing or demonstration)
