@@ -3,36 +3,43 @@ Refactored agent classes with a generic Agent, a Supervisor, and a create_agent 
 Includes best-practice memory, checkpointing, and state management for production chatbots.
 """
 
-from typing import List, Optional, Any, Union, Callable, Dict, Tuple, TypeVar
 import asyncio
-import os
 import logging
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential,
-    retry_if_exception_type,
-)
-from dotenv import load_dotenv
+import os
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union, cast
 
-# LangChain Core
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.messages import SystemMessage, AIMessage, BaseMessage, trim_messages
-from langchain_core.runnables import RunnableConfig  # For config in invoke/ainvoke
+from dotenv import load_dotenv
 
 # LLM Clients
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_ollama import OllamaLLM
 
+# LangChain Core
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.messages import SystemMessage, AIMessage, BaseMessage
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import BaseTool
+
 # LangGraph
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph_supervisor import create_supervisor
 from langgraph.prebuilt import ToolNode, create_react_agent
-from .storage import KnowledgeTree, ExperienceTree
-from .mcp import MCPClient
+
+# Tenacity für Retry-Logik
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
+
+# Lokale Module
+from mao.memory import trim_messages
+from mao.storage import ExperienceTree, KnowledgeTree
+from mao.mcp import MCPClient
 
 load_dotenv()
 
@@ -108,7 +115,7 @@ def _create_llm_client(
                 "anthropic-beta"
             ] = "tools-2024-04-04"
         return ChatAnthropic(
-            model=model_name,
+            model_name=model_name,
             temperature=temperature,
             callbacks=actual_callbacks,
             streaming=stream,
@@ -213,21 +220,55 @@ async def _process_llm_response(
     streamed_content: str = "",
 ) -> Tuple[BaseMessage, str]:
     """Helper to process and standardize LLM responses into the proper format."""
+    content_str: str
+
+    # Explizite Typumwandlung für alle möglichen Eingabetypen
     if isinstance(response, AIMessage):
         message = response
-        content = str(message.content or streamed_content)
+        content_str = str(message.content or streamed_content)
     elif isinstance(response, str):
         message = AIMessage(content=response)
-        content = response
-    else:
+        content_str = response
+    elif isinstance(response, list) or isinstance(response, dict):
+        # Handle complex types by converting to string
         message = AIMessage(content=str(response))
-        content = str(response)
+        content_str = str(response)
+    else:
+        # Fallback für alle anderen Typen
+        message = AIMessage(content=str(response))
+        content_str = str(response)
 
     # Ensure streamed content is properly set if we were streaming
     if stream and token_callback and streamed_content and not message.content:
         message.content = streamed_content
+        content_str = streamed_content
 
-    return message, content
+    return message, content_str
+
+
+# Hilfsfunktion für str-Konvertierung
+def _ensure_str(val: Any) -> str:
+    if isinstance(val, str):
+        return val
+    if isinstance(val, list):
+        return "\n".join(str(v) for v in val)
+    if isinstance(val, dict):
+        return str(val)
+    return str(val)
+
+
+# Hilfsfunktion: Konvertiere Dicts zu echten Tools (hier: ignoriere Dicts, nur echte Tools zulassen)
+def _dicts_to_tools(tools: list[Any]) -> list[Any]:
+    return [t for t in tools if callable(t) or isinstance(t, BaseTool)]
+
+
+def _safe_system_content(system_prompt: str, context: Any) -> str:
+    """Helper to safely combine system prompt with context."""
+    # Explizite Typumwandlung für mypy
+    context_str = str(context) if context else ""
+    if context_str:
+        return f"{system_prompt}\n{context_str}"
+    return system_prompt
 
 
 class Agent:
@@ -303,12 +344,15 @@ class Agent:
         return "".join(context_parts).strip()
 
     async def _learn_experience(
-        self, user_input: str, model_output: str, tags: Optional[List[str]] = None
+        self, user_input: str, model_output: Any, tags: Optional[List[str]] = None
     ) -> None:
         """Stores interactions as experience for future reference."""
         if not self.experience_tree:
             logging.debug("Experience tree not available, skipping learning.")
             return
+
+        # Stelle sicher, dass model_output ein String ist
+        model_output_str = _ensure_str(model_output)
 
         knowledge_id = None
         if self.knowledge_tree and user_input:
@@ -322,7 +366,7 @@ class Agent:
             if knowledge_hits:
                 knowledge_id = knowledge_hits[0].get("id")
 
-        exp_text = f"User: {user_input}\nAgent: {model_output}"
+        exp_text = f"User: {user_input}\nAgent: {model_output_str}"
 
         try:
             # Versuche asynchrone Methode
@@ -338,6 +382,11 @@ class Agent:
                 tags=tags,
             )
 
+    async def _process_and_learn(self, user_input: str, learn_content: str) -> None:
+        """Helper to process learn_content and call _learn_experience."""
+        # Stelle sicher, dass learn_content ein String ist
+        await self._learn_experience(user_input, learn_content)
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -347,13 +396,16 @@ class Agent:
         self, state: MessagesState, config: Optional[RunnableConfig] = None
     ) -> Dict[str, List[BaseMessage]]:
         """Core method to process messages, call the LLM, and update state."""
-        user_input = state["messages"][-1].content if state["messages"] else ""
-        context = await self._retrieve_context(user_input)
-
-        # Determine appropriate tokenizer for trimming messages
+        user_input_raw = state["messages"][-1].content if state["messages"] else ""
+        user_input = _ensure_str(user_input_raw)
+        context_raw = await self._retrieve_context(user_input)
+        # Stelle sicher, dass context_raw als String behandelt wird
+        context_str = _ensure_str(context_raw)
+        # Verwende f-String statt + Operator für bessere Typkompatibilität
+        system_content = f"{self.system_prompt}"
+        if context_str:
+            system_content = f"{system_content}\n{context_str}"
         tokenizer_for_trim = _determine_tokenizer_for_trim(self.llm)
-
-        # Create trimmed message history for the LLM
         trimmed_messages_list = trim_messages(
             state["messages"],
             max_tokens=self.max_tokens_trimmed,
@@ -362,47 +414,32 @@ class Agent:
             include_system=True,
             start_on="human",
         )
-
-        # Prepare input for the LLM
-        system_content = self.system_prompt + (f"\n{context}" if context else "")
         messages_for_llm: List[BaseMessage] = [
             SystemMessage(content=system_content)
         ] + trimmed_messages_list
 
         try:
-            # Setup LLM call parameters
-            llm_call_kwargs = {}
-            if self.loaded_tools and hasattr(self.llm, "bind_tools"):
-                llm_call_kwargs["tools"] = self.loaded_tools
-
+            llm = self.llm  # type: ignore
+            tools = _dicts_to_tools(self.loaded_tools)
+            if tools and hasattr(llm, "bind_tools"):
+                llm = llm.bind_tools(tools)  # type: ignore
             streamed_content = ""
             if self.stream and self.token_callback:
-                # Handle streaming mode
-                async for chunk in self.llm.astream(
-                    messages_for_llm, **llm_call_kwargs
-                ):
+                async for chunk in llm.astream(messages_for_llm, config=config):  # type: ignore
                     token = chunk.content if hasattr(chunk, "content") else str(chunk)
                     self.token_callback(token)
-                    streamed_content += token
-
-                # After streaming, get the full response for state tracking
-                invoked_response = await self.llm.ainvoke(
-                    messages_for_llm, **llm_call_kwargs
-                )
+                    streamed_content = streamed_content + str(token)  # type: ignore
+                invoked_response = await llm.ainvoke(messages_for_llm, config=config)  # type: ignore
             else:
-                # Non-streaming mode
-                invoked_response = await self.llm.ainvoke(
-                    messages_for_llm, **llm_call_kwargs
-                )
+                invoked_response = await llm.ainvoke(messages_for_llm, config=config)  # type: ignore
 
-            # Process the response to standard format
-            response_message, learn_content = await _process_llm_response(
-                invoked_response, self.stream, self.token_callback, streamed_content
+            # Explizite Typkonvertierung für mypy
+            invoked_response_str = str(invoked_response) if invoked_response else ""
+            response_message, learn_content = await _process_llm_response(  # type: ignore
+                invoked_response_str, self.stream, self.token_callback, streamed_content
             )
-
-            # Store the interaction as experience
-            await self._learn_experience(user_input, learn_content)
-
+            # Explizite Typumwandlung für mypy
+            await self._process_and_learn(user_input, str(learn_content))
             return {"messages": [response_message]}
         except Exception as e:
             logging.error(f"Agent '{self.name}' model call failed: {e}", exc_info=True)
@@ -530,20 +567,27 @@ class Supervisor:
     async def _create_supervisor_workflow(self) -> None:
         """Creates the supervisor workflow with retry capability."""
         try:
-            # Load tools asynchronously
             tools = await self._load_supervisor_mcp_tools()
+            tools = _dicts_to_tools(tools)
             logging.info(f"Supervisor loaded {len(tools)} tools")
+            llm = self.llm  # type: ignore
+            if tools and hasattr(llm, "bind_tools"):
+                llm = llm.bind_tools(tools)  # type: ignore
+
+            # Explizite Typkonvertierung für mypy
+            agents_list = cast(List[Any], self.agents)
+            prompt_str = cast(str, self.prompt)
 
             workflow = create_supervisor(
-                self.agents,
-                model=self.llm,
-                prompt=self.prompt,
-                tools=tools,
-                **self.supervisor_kwargs,
+                agents_list,
+                model=llm,  # type: ignore
+                prompt=prompt_str,
+                tools=tools if tools else None,  # type: ignore
+                **self.supervisor_kwargs,  # type: ignore
             )
             self.app = workflow.compile(
                 checkpointer=self.memory, name="global_supervisor"
-            )
+            )  # type: ignore
         except Exception as e:
             logging.error(
                 f"Supervisor workflow initialization failed: {e}", exc_info=True
