@@ -200,3 +200,28 @@ class MCPAgentsAPI(FastAPI):
 
 # Global instance for compatibility with old code
 api = MCPAgentsAPI() 
+
+# Add main block to run the application with uvicorn when executed directly
+if __name__ == "__main__":
+    import uvicorn
+    import sys
+    
+    # Setup logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)]
+    )
+    
+    # Get port from environment or use default
+    port = int(os.environ.get("PORT", 8000))
+    
+    # Start uvicorn server
+    logging.info(f"Starting MAO API server on port {port}")
+    uvicorn.run(
+        "src.mao.api.api:api", 
+        host="0.0.0.0", 
+        port=port, 
+        reload=True,
+        log_level="info"
+    ) 
