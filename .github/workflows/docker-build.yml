@@ -50,5 +50,13 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+            ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+            QDRANT_URL=${{ secrets.QDRANT_URL }}
+            EMBEDDING_MODEL=${{ secrets.EMBEDDING_MODEL }}
+            MCP_DB_PATH=${{ secrets.MCP_DB_PATH }}
+            MCP_CONFIG_PATH=${{ secrets.MCP_CONFIG_PATH }}
+            OLLAMA_HOST=${{ secrets.OLLAMA_HOST }}
           cache-from: type=gha
           cache-to: type=gha,mode=max 
