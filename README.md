@@ -67,11 +67,11 @@ MAO follows modern Python best practices:
 
 3. Run the API server:
    ```bash
-   uvicorn src.mcp_agents.api.api:api --reload
+   uvicorn src.mao.api.api:api --reload
    ```
 
 4. Access the API documentation at `http://localhost:8000/docs`
 
 ## License
 
-[License information]
+This project is licensed under the MIT License - see the LICENSE file for details.
