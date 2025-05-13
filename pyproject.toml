@@ -56,6 +56,7 @@ dev = [
     "pre-commit>=4.2.0",
     "pytest>=8.3.5",
     "pytest-cov>=6.1.1",
+    "pytest-asyncio>=0.26.0",
     "ruff>=0.11.9",
 ]
 
@@ -70,3 +71,9 @@ disallow_incomplete_defs = false
 [[tool.mypy.overrides]]
 module = "mao.agents"
 ignore_errors = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "asyncio: mark a test as an asyncio test",
+]
