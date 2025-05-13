@@ -18,7 +18,7 @@ from langchain_ollama import OllamaLLM
 # LangChain Core
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.messages import SystemMessage, AIMessage, BaseMessage
+from langchain_core.messages import SystemMessage, AIMessage, BaseMessage, trim_messages
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 
@@ -37,7 +37,6 @@ from tenacity import (
 )
 
 # Lokale Module
-from mao.memory import trim_messages
 from mao.storage import ExperienceTree, KnowledgeTree
 from mao.mcp import MCPClient
 
