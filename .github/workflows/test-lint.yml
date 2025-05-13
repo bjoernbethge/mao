@@ -33,22 +33,18 @@ jobs:
       OLLAMA_HOST: http://localhost:11434
     
     steps:
-      - name: Checkout code
-        run: |
-          git clone https://github.com/${{ github.repository }}.git .
-          git checkout ${{ github.sha }}
+      - uses: actions/checkout@v4
       
       - name: Set up Python
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y python3.11 python3.11-dev python3.11-venv
-          sudo ln -sf /usr/bin/python3.11 /usr/bin/python
-          python --version
-          
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
       
       - name: Create data directory
         run: mkdir -p data
@@ -76,7 +72,6 @@ jobs:
         run: uv run pytest --cov=src tests/
         
       - name: Upload coverage to Codecov
-        run: |
-          curl -Os https://uploader.codecov.io/latest/linux/codecov
-          chmod +x codecov
-          ./codecov -t ${{ secrets.CODECOV_TOKEN }} 
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }} 

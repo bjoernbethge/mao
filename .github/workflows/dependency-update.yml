@@ -13,67 +13,41 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Checkout code
-        run: |
-          git clone https://github.com/${{ github.repository }}.git .
-          git checkout ${{ github.sha }}
+      - uses: actions/checkout@v4
 
       - name: Set up Python
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y python3.11 python3.11-dev python3.11-venv
-          sudo ln -sf /usr/bin/python3.11 /usr/bin/python
-          python --version
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
 
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Update dependencies
         id: update
         run: |
-          # Save current dependencies
-          cp uv.lock uv.lock.old
-          
-          # Update dependencies
-          uv pip compile pyproject.toml -o requirements.txt --all-extras
-          uv sync
-          
-          # Check if there are changes
+          cp uv.lock uv.lock.old || true
+          uv sync --upgrade
           if ! diff -q uv.lock uv.lock.old > /dev/null; then
             echo "changes=true" >> $GITHUB_OUTPUT
           else
             echo "changes=false" >> $GITHUB_OUTPUT
           fi
-          
-          # Cleanup
-          rm uv.lock.old requirements.txt
+          rm -f uv.lock.old
 
       - name: Create Pull Request
         if: steps.update.outputs.changes == 'true'
-        run: |
-          # Configure git
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          
-          # Create a new branch
-          BRANCH="dependency-update"
-          git checkout -b $BRANCH
-          
-          # Commit changes
-          git add uv.lock
-          git commit -m "chore: update dependencies"
-          
-          # Push to remote
-          git push -f origin $BRANCH
-          
-          # Create PR using GitHub CLI
-          gh pr create \
-            --title "chore: update dependencies" \
-            --body "This PR updates project dependencies to their latest compatible versions.\n\nUpdated automatically by the Dependency Update workflow." \
-            --label "dependencies" \
-            --base main \
-            --head $BRANCH
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: 'chore: update dependencies'
+          title: 'chore: update dependencies'
+          body: |
+            This PR updates project dependencies to their latest compatible versions.
+            
+            Updated automatically by the Dependency Update workflow.
+          branch: dependency-update
+          labels: dependencies
+          base: main 
