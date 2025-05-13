@@ -7,4 +7,4 @@ Provides a REST API for managing and interacting with MCP agents.
 from .api import api, MCPAgentsAPI
 
 # Export important API components
-__all__ = ["api", "MCPAgentsAPI"] 
+__all__ = ["api", "MCPAgentsAPI"]

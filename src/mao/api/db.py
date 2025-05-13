@@ -11,30 +11,31 @@ import asyncio
 from typing import Dict, List, Any, Optional, Union, Tuple
 from contextlib import asynccontextmanager, contextmanager
 
+
 class ConfigDB:
     """
     Configuration database for MCP agents using DuckDB.
     Stores and manages:
     - Agent configurations
-    - Tool configurations 
+    - Tool configurations
     - Server configurations
     - Team configurations
     - Supervisor configurations
     - Default system prompts
     """
-    
-    _instances: Dict[str, 'ConfigDB'] = {}
+
+    _instances: Dict[str, "ConfigDB"] = {}
     _lock = asyncio.Lock()
-    
+
     @classmethod
-    async def get_instance(cls, db_path: str = "mcp_config.duckdb") -> 'ConfigDB':
+    async def get_instance(cls, db_path: str = "mcp_config.duckdb") -> "ConfigDB":
         """
         Get or create a ConfigDB instance with the given path.
         Uses a singleton pattern to reuse database connections.
-        
+
         Args:
             db_path: Path to the DuckDB database file
-            
+
         Returns:
             ConfigDB instance
         """
@@ -44,11 +45,11 @@ class ConfigDB:
                 instance = cls(db_path)
                 cls._instances[db_path] = instance
             return cls._instances[db_path]
-    
+
     def __init__(self, db_path: str = "mcp_config.duckdb"):
         """
         Initialize the configuration database.
-        
+
         Args:
             db_path: Path to the DuckDB database file
         """
@@ -56,18 +57,18 @@ class ConfigDB:
         env_db_path = os.environ.get("MCP_DB_PATH")
         if env_db_path:
             db_path = env_db_path
-            
+
         self.db_path = db_path
         self._conn = None
         self._conn_lock = asyncio.Lock()
         self._initialize_db()
-    
+
     def _connect(self):
         """Establish database connection"""
         if self._conn is None:
             self._conn = duckdb.connect(self.db_path)
         return self._conn
-    
+
     @contextmanager
     def connection(self):
         """Context manager for database connections"""
@@ -77,7 +78,7 @@ class ConfigDB:
         except Exception as e:
             logging.error(f"Database error: {e}")
             raise
-    
+
     @asynccontextmanager
     async def async_connection(self):
         """Async context manager for database connections"""
@@ -88,12 +89,13 @@ class ConfigDB:
             except Exception as e:
                 logging.error(f"Database error: {e}")
                 raise
-    
+
     def _initialize_db(self):
         """Create required tables if they don't exist"""
         with self.connection() as conn:
             # Create the agents table
-            conn.execute("""
+            conn.execute(
+                """
             CREATE TABLE IF NOT EXISTS agents (
                 id VARCHAR PRIMARY KEY,
                 name VARCHAR NOT NULL,
@@ -106,10 +108,12 @@ class ConfigDB:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-            """)
-            
+            """
+            )
+
             # Create the tools table
-            conn.execute("""
+            conn.execute(
+                """
             CREATE TABLE IF NOT EXISTS tools (
                 id VARCHAR PRIMARY KEY,
                 name VARCHAR NOT NULL,
@@ -120,10 +124,12 @@ class ConfigDB:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-            """)
-            
+            """
+            )
+
             # Create the servers table
-            conn.execute("""
+            conn.execute(
+                """
             CREATE TABLE IF NOT EXISTS mcp_servers (
                 id VARCHAR PRIMARY KEY,
                 name VARCHAR NOT NULL UNIQUE,
@@ -138,10 +144,12 @@ class ConfigDB:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-            """)
-            
+            """
+            )
+
             # Create the agent-tool associations table
-            conn.execute("""
+            conn.execute(
+                """
             CREATE TABLE IF NOT EXISTS agent_tools (
                 agent_id VARCHAR NOT NULL,
                 tool_id VARCHAR NOT NULL,
@@ -149,10 +157,12 @@ class ConfigDB:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (agent_id, tool_id)
             )
-            """)
-            
+            """
+            )
+
             # Create the supervisors table
-            conn.execute("""
+            conn.execute(
+                """
             CREATE TABLE IF NOT EXISTS supervisors (
                 id VARCHAR PRIMARY KEY,
                 agent_id VARCHAR NOT NULL,
@@ -165,10 +175,12 @@ class ConfigDB:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (agent_id) REFERENCES agents(id)
             )
-            """)
-            
+            """
+            )
+
             # Create the teams table
-            conn.execute("""
+            conn.execute(
+                """
             CREATE TABLE IF NOT EXISTS teams (
                 id VARCHAR PRIMARY KEY,
                 name VARCHAR NOT NULL,
@@ -181,10 +193,12 @@ class ConfigDB:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (supervisor_id) REFERENCES supervisors(id)
             )
-            """)
-            
+            """
+            )
+
             # Create the team members table
-            conn.execute("""
+            conn.execute(
+                """
             CREATE TABLE IF NOT EXISTS team_members (
                 team_id VARCHAR NOT NULL,
                 agent_id VARCHAR NOT NULL,
@@ -198,10 +212,12 @@ class ConfigDB:
                 FOREIGN KEY (team_id) REFERENCES teams(id),
                 FOREIGN KEY (agent_id) REFERENCES agents(id)
             )
-            """)
-            
+            """
+            )
+
             # Create the configs table for global settings
-            conn.execute("""
+            conn.execute(
+                """
             CREATE TABLE IF NOT EXISTS global_configs (
                 key VARCHAR PRIMARY KEY,
                 value JSON,
@@ -209,34 +225,96 @@ class ConfigDB:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-            """)
-    
-    def _process_result(self, result: Union[Tuple, Any], table_name: str) -> Dict[str, Any]:
+            """
+            )
+
+    def _process_result(
+        self, result: Union[Tuple, Any], table_name: str
+    ) -> Dict[str, Any]:
         """Process a database result into a dictionary"""
         if result is None:
             return None
-        
+
         # Define column mappings for each table
         column_mappings = {
-            "agents": ["id", "name", "provider", "model_name", "system_prompt", 
-                      "use_react_agent", "max_tokens_trimmed", "llm_specific_kwargs",
-                      "created_at", "updated_at"],
-            "tools": ["id", "name", "enabled", "server_id", "description", 
-                     "parameters", "created_at", "updated_at"],
-            "mcp_servers": ["id", "name", "transport", "enabled", "url", "command",
-                           "args", "headers", "env_vars", "timeout", 
-                           "created_at", "updated_at"],
+            "agents": [
+                "id",
+                "name",
+                "provider",
+                "model_name",
+                "system_prompt",
+                "use_react_agent",
+                "max_tokens_trimmed",
+                "llm_specific_kwargs",
+                "created_at",
+                "updated_at",
+            ],
+            "tools": [
+                "id",
+                "name",
+                "enabled",
+                "server_id",
+                "description",
+                "parameters",
+                "created_at",
+                "updated_at",
+            ],
+            "mcp_servers": [
+                "id",
+                "name",
+                "transport",
+                "enabled",
+                "url",
+                "command",
+                "args",
+                "headers",
+                "env_vars",
+                "timeout",
+                "created_at",
+                "updated_at",
+            ],
             "agent_tools": ["agent_id", "tool_id", "enabled", "created_at"],
-            "supervisors": ["id", "agent_id", "system_prompt", "strategy", 
-                           "add_handoff_back_messages", "parallel_tool_calls", "config",
-                           "created_at", "updated_at"],
-            "teams": ["id", "name", "description", "workflow_type", "supervisor_id", 
-                     "config", "is_active", "created_at", "updated_at"],
-            "team_members": ["team_id", "agent_id", "role", "order_index", "is_active", 
-                            "params", "created_at", "updated_at"],
-            "global_configs": ["key", "value", "description", "created_at", "updated_at"]
+            "supervisors": [
+                "id",
+                "agent_id",
+                "system_prompt",
+                "strategy",
+                "add_handoff_back_messages",
+                "parallel_tool_calls",
+                "config",
+                "created_at",
+                "updated_at",
+            ],
+            "teams": [
+                "id",
+                "name",
+                "description",
+                "workflow_type",
+                "supervisor_id",
+                "config",
+                "is_active",
+                "created_at",
+                "updated_at",
+            ],
+            "team_members": [
+                "team_id",
+                "agent_id",
+                "role",
+                "order_index",
+                "is_active",
+                "params",
+                "created_at",
+                "updated_at",
+            ],
+            "global_configs": [
+                "key",
+                "value",
+                "description",
+                "created_at",
+                "updated_at",
+            ],
         }
-        
+
         # Convert to dict if tuple
         if isinstance(result, tuple):
             # Get column names
@@ -254,9 +332,17 @@ class ConfigDB:
         else:
             # Already a dict or dict-like
             data = dict(result)
-        
+
         # Process JSON fields
-        json_fields = ["llm_specific_kwargs", "config", "params", "args", "headers", "env_vars", "parameters"]
+        json_fields = [
+            "llm_specific_kwargs",
+            "config",
+            "params",
+            "args",
+            "headers",
+            "env_vars",
+            "parameters",
+        ]
         for field in json_fields:
             if field in data and data[field] is not None:
                 if isinstance(data[field], str):
@@ -265,22 +351,24 @@ class ConfigDB:
                     except json.JSONDecodeError:
                         # If not valid JSON, keep as string
                         pass
-        
+
         return data
-    
+
     # Agent Methods - Asynchronous Implementation
-    async def create_agent(self, 
-                    agent_id: str, 
-                    name: str, 
-                    provider: str, 
-                    model_name: str, 
-                    system_prompt: Optional[str] = None,
-                    use_react_agent: bool = True,
-                    max_tokens_trimmed: int = 3000,
-                    llm_specific_kwargs: Optional[Dict[str, Any]] = None) -> str:
+    async def create_agent(
+        self,
+        agent_id: str,
+        name: str,
+        provider: str,
+        model_name: str,
+        system_prompt: Optional[str] = None,
+        use_react_agent: bool = True,
+        max_tokens_trimmed: int = 3000,
+        llm_specific_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> str:
         """
         Create a new agent configuration asynchronously.
-        
+
         Args:
             agent_id: Unique identifier for the agent
             name: Display name for the agent
@@ -290,119 +378,136 @@ class ConfigDB:
             use_react_agent: Whether to use ReAct agent
             max_tokens_trimmed: Maximum tokens to keep in context
             llm_specific_kwargs: Provider-specific arguments
-            
+
         Returns:
             The agent_id of the created agent
         """
         async with self.async_connection() as conn:
-            kwargs_json = json.dumps(llm_specific_kwargs) if llm_specific_kwargs else None
-            
-            conn.execute("""
+            kwargs_json = (
+                json.dumps(llm_specific_kwargs) if llm_specific_kwargs else None
+            )
+
+            conn.execute(
+                """
             INSERT INTO agents (id, name, provider, model_name, system_prompt, use_react_agent, max_tokens_trimmed, llm_specific_kwargs)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, [agent_id, name, provider, model_name, system_prompt, use_react_agent, max_tokens_trimmed, kwargs_json])
-            
+            """,
+                [
+                    agent_id,
+                    name,
+                    provider,
+                    model_name,
+                    system_prompt,
+                    use_react_agent,
+                    max_tokens_trimmed,
+                    kwargs_json,
+                ],
+            )
+
             return agent_id
-            
+
     async def get_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
         """Gets an agent by ID asynchronously"""
         async with self.async_connection() as conn:
             result = conn.execute(
-                "SELECT * FROM agents WHERE id = ?", 
-                [agent_id]
+                "SELECT * FROM agents WHERE id = ?", [agent_id]
             ).fetchone()
-            
+
             if not result:
                 return None
-            
+
             agent = self._process_result(result, "agents")
-            
+
             # No need to deserialize JSON fields again as _process_result already does this
             return agent
-    
+
     async def list_agents(
-        self, 
-        limit: Optional[int] = None, 
-        offset: Optional[int] = 0
+        self, limit: Optional[int] = None, offset: Optional[int] = 0
     ) -> List[Dict[str, Any]]:
         """Lists all agents asynchronously, with optional pagination"""
         async with self.async_connection() as conn:
             query = "SELECT * FROM agents"
             params = []
-            
+
             if limit is not None:
                 query += " LIMIT ?"
                 params.append(limit)
-                
+
                 if offset is not None:
                     query += " OFFSET ?"
                     params.append(offset)
-            
+
             results = conn.execute(query, params).fetchall()
-            
+
             agents = [self._process_result(row, "agents") for row in results]
-            
+
             # No need to deserialize JSON fields again as _process_result already does this
             return agents
-    
+
     async def update_agent(self, agent_id: str, **kwargs) -> bool:
         """Updates an agent asynchronously"""
         if not kwargs:
             return False
-            
+
         async with self.async_connection() as conn:
             # Build the SET clause and parameters
             set_clauses = []
             params = []
-            
+
             for key, value in kwargs.items():
-                if key == 'llm_specific_kwargs':
+                if key == "llm_specific_kwargs":
                     set_clauses.append(f"{key} = ?")
                     params.append(json.dumps(value) if value is not None else None)
                 else:
                     set_clauses.append(f"{key} = ?")
                     params.append(value)
-            
+
             # Add updated_at timestamp
             set_clauses.append("updated_at = CURRENT_TIMESTAMP")
-            
+
             # Add agent_id to parameters
             params.append(agent_id)
-            
+
             # Execute the update
             conn.execute(
-                f"UPDATE agents SET {', '.join(set_clauses)} WHERE id = ?",
-                params
+                f"UPDATE agents SET {', '.join(set_clauses)} WHERE id = ?", params
             )
-            
+
             return True
-    
+
     async def delete_agent(self, agent_id: str) -> bool:
         """Deletes an agent asynchronously"""
         async with self.async_connection() as conn:
             # First delete agent-tool associations
             conn.execute("DELETE FROM agent_tools WHERE agent_id = ?", [agent_id])
-            
+
             # Delete agent from all teams
             conn.execute("DELETE FROM team_members WHERE agent_id = ?", [agent_id])
-            
+
             # Get supervisors using this agent
-            supervisors = conn.execute("SELECT id FROM supervisors WHERE agent_id = ?", [agent_id]).fetchall()
+            supervisors = conn.execute(
+                "SELECT id FROM supervisors WHERE agent_id = ?", [agent_id]
+            ).fetchall()
             supervisor_ids = [s[0] for s in supervisors]
-            
+
             # Update teams using those supervisors to set supervisor_id to NULL
             for supervisor_id in supervisor_ids:
-                conn.execute("UPDATE teams SET supervisor_id = NULL WHERE supervisor_id = ?", [supervisor_id])
-            
+                conn.execute(
+                    "UPDATE teams SET supervisor_id = NULL WHERE supervisor_id = ?",
+                    [supervisor_id],
+                )
+
             # Delete supervisors using this agent
             conn.execute("DELETE FROM supervisors WHERE agent_id = ?", [agent_id])
-            
+
             # Then delete the agent
             conn.execute("DELETE FROM agents WHERE id = ?", [agent_id])
-            
+
             return True
-    
-    async def get_agent_tools(self, agent_id: str, enabled_only: bool = False) -> List[Dict[str, Any]]:
+
+    async def get_agent_tools(
+        self, agent_id: str, enabled_only: bool = False
+    ) -> List[Dict[str, Any]]:
         """Gets all tools assigned to an agent asynchronously"""
         async with self.async_connection() as conn:
             query = """
@@ -411,57 +516,60 @@ class ConfigDB:
             JOIN tools t ON at.tool_id = t.id
             WHERE at.agent_id = ?
             """
-            
+
             params = [agent_id]
-            
+
             if enabled_only:
                 query += " AND at.enabled = TRUE AND t.enabled = TRUE"
-                
+
             query += " ORDER BY t.name"
-            
+
             results = conn.execute(query, params).fetchall()
             return [self._process_result(r, "tools") for r in results]
-    
+
     # Team Methods - Asynchronous Implementation
     async def get_team(self, team_id: str) -> Optional[Dict[str, Any]]:
         """Gets a team by its ID asynchronously"""
         async with self.async_connection() as conn:
             result = conn.execute(
-                "SELECT * FROM teams WHERE id = ?", 
-                [team_id]
+                "SELECT * FROM teams WHERE id = ?", [team_id]
             ).fetchone()
             return self._process_result(result, "teams") if result else None
 
-    async def list_teams(self, supervisor_id: Optional[str] = None, active_only: bool = False) -> List[Dict[str, Any]]:
+    async def list_teams(
+        self, supervisor_id: Optional[str] = None, active_only: bool = False
+    ) -> List[Dict[str, Any]]:
         """Lists all teams asynchronously, optionally filtered"""
         async with self.async_connection() as conn:
             query = "SELECT * FROM teams"
             params = []
-            
+
             conditions = []
             if supervisor_id:
                 conditions.append("supervisor_id = ?")
                 params.append(supervisor_id)
-            
+
             if active_only:
                 conditions.append("is_active = TRUE")
-            
+
             if conditions:
                 query += " WHERE " + " AND ".join(conditions)
-            
+
             query += " ORDER BY name"
-            
+
             results = conn.execute(query, params).fetchall()
             return [self._process_result(r, "teams") for r in results]
 
-    async def create_team(self, 
-                       team_id: str,
-                       name: str,
-                       description: Optional[str] = None,
-                       workflow_type: str = "sequential",
-                       supervisor_id: Optional[str] = None,
-                       config: Optional[Dict[str, Any]] = None,
-                       is_active: bool = True) -> str:
+    async def create_team(
+        self,
+        team_id: str,
+        name: str,
+        description: Optional[str] = None,
+        workflow_type: str = "sequential",
+        supervisor_id: Optional[str] = None,
+        config: Optional[Dict[str, Any]] = None,
+        is_active: bool = True,
+    ) -> str:
         """Creates a team asynchronously"""
         async with self.async_connection() as conn:
             conn.execute(
@@ -471,10 +579,14 @@ class ConfigDB:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
-                    team_id, name, description, workflow_type, supervisor_id,
+                    team_id,
+                    name,
+                    description,
+                    workflow_type,
+                    supervisor_id,
                     json.dumps(config) if config else None,
-                    is_active
-                ]
+                    is_active,
+                ],
             )
             return team_id
 
@@ -482,32 +594,31 @@ class ConfigDB:
         """Updates a team asynchronously"""
         if not kwargs:
             return False
-            
+
         async with self.async_connection() as conn:
             # Build the SET clause and parameters
             set_clauses = []
             params = []
-            
+
             for key, value in kwargs.items():
-                if key == 'config':
+                if key == "config":
                     set_clauses.append(f"{key} = ?")
                     params.append(json.dumps(value) if value is not None else None)
                 else:
                     set_clauses.append(f"{key} = ?")
                     params.append(value)
-            
+
             # Add updated_at timestamp
             set_clauses.append("updated_at = CURRENT_TIMESTAMP")
-            
+
             # Add team_id to parameters
             params.append(team_id)
-            
+
             # Execute the update
             conn.execute(
-                f"UPDATE teams SET {', '.join(set_clauses)} WHERE id = ?",
-                params
+                f"UPDATE teams SET {', '.join(set_clauses)} WHERE id = ?", params
             )
-            
+
             return True
 
     async def delete_team(self, team_id: str) -> bool:
@@ -519,40 +630,46 @@ class ConfigDB:
             conn.execute("DELETE FROM teams WHERE id = ?", [team_id])
             return True
 
-    async def add_team_member(self, 
-                          team_id: str,
-                          agent_id: str,
-                          role: str,
-                          order_index: Optional[int] = None,
-                          is_active: bool = True,
-                          params: Optional[Dict[str, Any]] = None) -> bool:
+    async def add_team_member(
+        self,
+        team_id: str,
+        agent_id: str,
+        role: str,
+        order_index: Optional[int] = None,
+        is_active: bool = True,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> bool:
         """Adds an agent to a team asynchronously"""
         async with self.async_connection() as conn:
             # Check if the member already exists
             existing = conn.execute(
                 "SELECT 1 FROM team_members WHERE team_id = ? AND agent_id = ?",
-                [team_id, agent_id]
+                [team_id, agent_id],
             ).fetchone()
-            
+
             if existing:
                 # Update existing member
-                set_clauses = ["role = ?", "is_active = ?", "updated_at = CURRENT_TIMESTAMP"]
+                set_clauses = [
+                    "role = ?",
+                    "is_active = ?",
+                    "updated_at = CURRENT_TIMESTAMP",
+                ]
                 params_list = [role, is_active]
-                
+
                 if order_index is not None:
                     set_clauses.append("order_index = ?")
                     params_list.append(order_index)
-                    
+
                 if params is not None:
                     set_clauses.append("params = ?")
                     params_list.append(json.dumps(params))
-                    
+
                 # Add team_id and agent_id to parameters
                 params_list.extend([team_id, agent_id])
-                
+
                 conn.execute(
                     f"UPDATE team_members SET {', '.join(set_clauses)} WHERE team_id = ? AND agent_id = ?",
-                    params_list
+                    params_list,
                 )
             else:
                 # Insert new member
@@ -563,14 +680,20 @@ class ConfigDB:
                     ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     [
-                        team_id, agent_id, role, order_index, is_active,
-                        json.dumps(params) if params else None
-                    ]
+                        team_id,
+                        agent_id,
+                        role,
+                        order_index,
+                        is_active,
+                        json.dumps(params) if params else None,
+                    ],
                 )
-            
+
             return True
 
-    async def get_team_members(self, team_id: str, active_only: bool = False) -> List[Dict[str, Any]]:
+    async def get_team_members(
+        self, team_id: str, active_only: bool = False
+    ) -> List[Dict[str, Any]]:
         """Gets all members of a team asynchronously"""
         async with self.async_connection() as conn:
             query = """
@@ -579,14 +702,14 @@ class ConfigDB:
             LEFT JOIN agents a ON tm.agent_id = a.id
             WHERE tm.team_id = ?
             """
-            
+
             params = [team_id]
-            
+
             if active_only:
                 query += " AND tm.is_active = TRUE"
-                
+
             query += " ORDER BY tm.order_index, tm.created_at"
-            
+
             results = conn.execute(query, params).fetchall()
             return [self._process_result(r, "team_members") for r in results]
 
@@ -594,32 +717,32 @@ class ConfigDB:
         """Updates a team member asynchronously"""
         if not kwargs:
             return False
-            
+
         async with self.async_connection() as conn:
             # Build the SET clause and parameters
             set_clauses = []
             params = []
-            
+
             for key, value in kwargs.items():
-                if key == 'params':
+                if key == "params":
                     set_clauses.append(f"{key} = ?")
                     params.append(json.dumps(value) if value is not None else None)
                 else:
                     set_clauses.append(f"{key} = ?")
                     params.append(value)
-            
+
             # Add updated_at timestamp
             set_clauses.append("updated_at = CURRENT_TIMESTAMP")
-            
+
             # Add team_id and agent_id to parameters
             params.extend([team_id, agent_id])
-            
+
             # Execute the update
             conn.execute(
                 f"UPDATE team_members SET {', '.join(set_clauses)} WHERE team_id = ? AND agent_id = ?",
-                params
+                params,
             )
-            
+
             return True
 
     async def remove_team_member(self, team_id: str, agent_id: str) -> bool:
@@ -627,19 +750,21 @@ class ConfigDB:
         async with self.async_connection() as conn:
             conn.execute(
                 "DELETE FROM team_members WHERE team_id = ? AND agent_id = ?",
-                [team_id, agent_id]
+                [team_id, agent_id],
             )
             return True
 
     # Supervisor Methods - Asynchronous Implementation
-    async def create_supervisor(self, 
-                             supervisor_id: str,
-                             agent_id: str,
-                             system_prompt: Optional[str] = None,
-                             strategy: str = "team_manager",
-                             add_handoff_back_messages: bool = True,
-                             parallel_tool_calls: bool = True,
-                             config: Optional[Dict[str, Any]] = None) -> str:
+    async def create_supervisor(
+        self,
+        supervisor_id: str,
+        agent_id: str,
+        system_prompt: Optional[str] = None,
+        strategy: str = "team_manager",
+        add_handoff_back_messages: bool = True,
+        parallel_tool_calls: bool = True,
+        config: Optional[Dict[str, Any]] = None,
+    ) -> str:
         """Creates a supervisor asynchronously"""
         async with self.async_connection() as conn:
             conn.execute(
@@ -650,10 +775,14 @@ class ConfigDB:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
-                    supervisor_id, agent_id, system_prompt, strategy,
-                    add_handoff_back_messages, parallel_tool_calls,
-                    json.dumps(config) if config else None
-                ]
+                    supervisor_id,
+                    agent_id,
+                    system_prompt,
+                    strategy,
+                    add_handoff_back_messages,
+                    parallel_tool_calls,
+                    json.dumps(config) if config else None,
+                ],
             )
             return supervisor_id
 
@@ -666,12 +795,14 @@ class ConfigDB:
                 FROM supervisors s
                 LEFT JOIN agents a ON s.agent_id = a.id
                 WHERE s.id = ?
-                """, 
-                [supervisor_id]
+                """,
+                [supervisor_id],
             ).fetchone()
             return self._process_result(result, "supervisors") if result else None
 
-    async def list_supervisors(self, agent_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    async def list_supervisors(
+        self, agent_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """Lists all supervisors asynchronously, optionally filtered by agent_id"""
         async with self.async_connection() as conn:
             query = """
@@ -679,15 +810,15 @@ class ConfigDB:
             FROM supervisors s
             LEFT JOIN agents a ON s.agent_id = a.id
             """
-            
+
             params = []
-            
+
             if agent_id:
                 query += " WHERE s.agent_id = ?"
                 params.append(agent_id)
-                
+
             query += " ORDER BY s.created_at DESC"
-            
+
             results = conn.execute(query, params).fetchall()
             return [self._process_result(r, "supervisors") for r in results]
 
@@ -695,32 +826,31 @@ class ConfigDB:
         """Updates a supervisor asynchronously"""
         if not kwargs:
             return False
-            
+
         async with self.async_connection() as conn:
             # Build the SET clause and parameters
             set_clauses = []
             params = []
-            
+
             for key, value in kwargs.items():
-                if key == 'config':
+                if key == "config":
                     set_clauses.append(f"{key} = ?")
                     params.append(json.dumps(value) if value is not None else None)
                 else:
                     set_clauses.append(f"{key} = ?")
                     params.append(value)
-            
+
             # Add updated_at timestamp
             set_clauses.append("updated_at = CURRENT_TIMESTAMP")
-            
+
             # Add supervisor_id to parameters
             params.append(supervisor_id)
-            
+
             # Execute the update
             conn.execute(
-                f"UPDATE supervisors SET {', '.join(set_clauses)} WHERE id = ?",
-                params
+                f"UPDATE supervisors SET {', '.join(set_clauses)} WHERE id = ?", params
             )
-            
+
             return True
 
     async def delete_supervisor(self, supervisor_id: str) -> bool:
@@ -729,25 +859,27 @@ class ConfigDB:
             # Update teams that use this supervisor to remove the reference
             conn.execute(
                 "UPDATE teams SET supervisor_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE supervisor_id = ?",
-                [supervisor_id]
+                [supervisor_id],
             )
-            
+
             # Delete the supervisor
             conn.execute("DELETE FROM supervisors WHERE id = ?", [supervisor_id])
             return True
-    
+
     # Server Methods - Asynchronous Implementation
-    async def create_server(self, 
-                      server_id: str,
-                      name: str,
-                      transport: str,
-                      enabled: bool = True,
-                      url: Optional[str] = None,
-                      command: Optional[str] = None,
-                      args: Optional[List[str]] = None,
-                      headers: Optional[Dict[str, str]] = None,
-                      env_vars: Optional[Dict[str, str]] = None,
-                      timeout: Optional[int] = None) -> str:
+    async def create_server(
+        self,
+        server_id: str,
+        name: str,
+        transport: str,
+        enabled: bool = True,
+        url: Optional[str] = None,
+        command: Optional[str] = None,
+        args: Optional[List[str]] = None,
+        headers: Optional[Dict[str, str]] = None,
+        env_vars: Optional[Dict[str, str]] = None,
+        timeout: Optional[int] = None,
+    ) -> str:
         """Creates a server asynchronously"""
         async with self.async_connection() as conn:
             conn.execute(
@@ -757,12 +889,17 @@ class ConfigDB:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
-                    server_id, name, transport, enabled, url, command,
+                    server_id,
+                    name,
+                    transport,
+                    enabled,
+                    url,
+                    command,
                     json.dumps(args) if args else None,
                     json.dumps(headers) if headers else None,
                     json.dumps(env_vars) if env_vars else None,
-                    timeout
-                ]
+                    timeout,
+                ],
             )
             return server_id
 
@@ -770,8 +907,7 @@ class ConfigDB:
         """Gets a server by its ID asynchronously"""
         async with self.async_connection() as conn:
             result = conn.execute(
-                "SELECT * FROM mcp_servers WHERE id = ?", 
-                [server_id]
+                "SELECT * FROM mcp_servers WHERE id = ?", [server_id]
             ).fetchone()
             return self._process_result(result, "mcp_servers") if result else None
 
@@ -780,12 +916,12 @@ class ConfigDB:
         async with self.async_connection() as conn:
             query = "SELECT * FROM mcp_servers"
             params = []
-            
+
             if enabled_only:
                 query += " WHERE enabled = TRUE"
-                
+
             query += " ORDER BY name"
-            
+
             results = conn.execute(query, params).fetchall()
             return [self._process_result(r, "mcp_servers") for r in results]
 
@@ -793,32 +929,31 @@ class ConfigDB:
         """Updates a server asynchronously"""
         if not kwargs:
             return False
-            
+
         async with self.async_connection() as conn:
             # Build the SET clause and parameters
             set_clauses = []
             params = []
-            
+
             for key, value in kwargs.items():
-                if key in ['args', 'headers', 'env_vars']:
+                if key in ["args", "headers", "env_vars"]:
                     set_clauses.append(f"{key} = ?")
                     params.append(json.dumps(value) if value is not None else None)
                 else:
                     set_clauses.append(f"{key} = ?")
                     params.append(value)
-            
+
             # Add updated_at timestamp
             set_clauses.append("updated_at = CURRENT_TIMESTAMP")
-            
+
             # Add server_id to parameters
             params.append(server_id)
-            
+
             # Execute the update
             conn.execute(
-                f"UPDATE mcp_servers SET {', '.join(set_clauses)} WHERE id = ?",
-                params
+                f"UPDATE mcp_servers SET {', '.join(set_clauses)} WHERE id = ?", params
             )
-            
+
             return True
 
     async def delete_server(self, server_id: str) -> bool:
@@ -827,21 +962,23 @@ class ConfigDB:
             # Update tools that use this server to set server_id to NULL
             conn.execute(
                 "UPDATE tools SET server_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE server_id = ?",
-                [server_id]
+                [server_id],
             )
-            
+
             # Delete the server
             conn.execute("DELETE FROM mcp_servers WHERE id = ?", [server_id])
             return True
-    
+
     # Tool Methods - Asynchronous Implementation
-    async def create_tool(self, 
-                     tool_id: str,
-                     name: str,
-                     enabled: bool = True,
-                     server_id: Optional[str] = None,
-                     description: Optional[str] = None,
-                     parameters: Optional[Dict[str, Any]] = None) -> str:
+    async def create_tool(
+        self,
+        tool_id: str,
+        name: str,
+        enabled: bool = True,
+        server_id: Optional[str] = None,
+        description: Optional[str] = None,
+        parameters: Optional[Dict[str, Any]] = None,
+    ) -> str:
         """Creates a tool asynchronously"""
         async with self.async_connection() as conn:
             conn.execute(
@@ -851,9 +988,13 @@ class ConfigDB:
                 ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 [
-                    tool_id, name, enabled, server_id, description,
-                    json.dumps(parameters) if parameters else None
-                ]
+                    tool_id,
+                    name,
+                    enabled,
+                    server_id,
+                    description,
+                    json.dumps(parameters) if parameters else None,
+                ],
             )
             return tool_id
 
@@ -861,30 +1002,31 @@ class ConfigDB:
         """Gets a tool by its ID asynchronously"""
         async with self.async_connection() as conn:
             result = conn.execute(
-                "SELECT * FROM tools WHERE id = ?", 
-                [tool_id]
+                "SELECT * FROM tools WHERE id = ?", [tool_id]
             ).fetchone()
             return self._process_result(result, "tools") if result else None
 
-    async def list_tools(self, server_id: Optional[str] = None, enabled_only: bool = False) -> List[Dict[str, Any]]:
+    async def list_tools(
+        self, server_id: Optional[str] = None, enabled_only: bool = False
+    ) -> List[Dict[str, Any]]:
         """Lists all tools asynchronously, optionally filtered"""
         async with self.async_connection() as conn:
             query = "SELECT * FROM tools"
             params = []
-            
+
             conditions = []
             if server_id:
                 conditions.append("server_id = ?")
                 params.append(server_id)
-            
+
             if enabled_only:
                 conditions.append("enabled = TRUE")
-            
+
             if conditions:
                 query += " WHERE " + " AND ".join(conditions)
-            
+
             query += " ORDER BY name"
-            
+
             results = conn.execute(query, params).fetchall()
             return [self._process_result(r, "tools") for r in results]
 
@@ -892,32 +1034,31 @@ class ConfigDB:
         """Updates a tool asynchronously"""
         if not kwargs:
             return False
-            
+
         async with self.async_connection() as conn:
             # Build the SET clause and parameters
             set_clauses = []
             params = []
-            
+
             for key, value in kwargs.items():
-                if key == 'parameters':
+                if key == "parameters":
                     set_clauses.append(f"{key} = ?")
                     params.append(json.dumps(value) if value is not None else None)
                 else:
                     set_clauses.append(f"{key} = ?")
                     params.append(value)
-            
+
             # Add updated_at timestamp
             set_clauses.append("updated_at = CURRENT_TIMESTAMP")
-            
+
             # Add tool_id to parameters
             params.append(tool_id)
-            
+
             # Execute the update
             conn.execute(
-                f"UPDATE tools SET {', '.join(set_clauses)} WHERE id = ?",
-                params
+                f"UPDATE tools SET {', '.join(set_clauses)} WHERE id = ?", params
             )
-            
+
             return True
 
     async def delete_tool(self, tool_id: str) -> bool:
@@ -925,33 +1066,35 @@ class ConfigDB:
         async with self.async_connection() as conn:
             # Delete tool-agent associations first
             conn.execute("DELETE FROM agent_tools WHERE tool_id = ?", [tool_id])
-            
+
             # Delete the tool
             conn.execute("DELETE FROM tools WHERE id = ?", [tool_id])
             return True
 
-    async def assign_tool_to_agent(self, agent_id: str, tool_id: str, enabled: bool = True) -> bool:
+    async def assign_tool_to_agent(
+        self, agent_id: str, tool_id: str, enabled: bool = True
+    ) -> bool:
         """Assigns a tool to an agent asynchronously"""
         async with self.async_connection() as conn:
             # Check if the association already exists
             existing = conn.execute(
                 "SELECT 1 FROM agent_tools WHERE agent_id = ? AND tool_id = ?",
-                [agent_id, tool_id]
+                [agent_id, tool_id],
             ).fetchone()
-            
+
             if existing:
                 # Update existing association
                 conn.execute(
                     "UPDATE agent_tools SET enabled = ? WHERE agent_id = ? AND tool_id = ?",
-                    [enabled, agent_id, tool_id]
+                    [enabled, agent_id, tool_id],
                 )
             else:
                 # Insert new association
                 conn.execute(
                     "INSERT INTO agent_tools (agent_id, tool_id, enabled) VALUES (?, ?, ?)",
-                    [agent_id, tool_id, enabled]
+                    [agent_id, tool_id, enabled],
                 )
-            
+
             return True
 
     async def remove_tool_from_agent(self, agent_id: str, tool_id: str) -> bool:
@@ -959,23 +1102,25 @@ class ConfigDB:
         async with self.async_connection() as conn:
             conn.execute(
                 "DELETE FROM agent_tools WHERE agent_id = ? AND tool_id = ?",
-                [agent_id, tool_id]
+                [agent_id, tool_id],
             )
             return True
-    
+
     # Synchrone Wrapper-Methoden
-    def create_agent_sync(self, 
-                    agent_id: str, 
-                    name: str, 
-                    provider: str, 
-                    model_name: str, 
-                    system_prompt: Optional[str] = None,
-                    use_react_agent: bool = True,
-                    max_tokens_trimmed: int = 3000,
-                    llm_specific_kwargs: Optional[Dict[str, Any]] = None) -> str:
+    def create_agent_sync(
+        self,
+        agent_id: str,
+        name: str,
+        provider: str,
+        model_name: str,
+        system_prompt: Optional[str] = None,
+        use_react_agent: bool = True,
+        max_tokens_trimmed: int = 3000,
+        llm_specific_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> str:
         """
         Create a new agent configuration.
-        
+
         Args:
             agent_id: Unique identifier for the agent
             name: Display name for the agent
@@ -985,37 +1130,51 @@ class ConfigDB:
             use_react_agent: Whether to use ReAct agent
             max_tokens_trimmed: Maximum tokens to keep in context
             llm_specific_kwargs: Provider-specific arguments
-            
+
         Returns:
             The agent_id of the created agent
         """
         with self.connection() as conn:
-            kwargs_json = json.dumps(llm_specific_kwargs) if llm_specific_kwargs else None
-            
-            conn.execute("""
+            kwargs_json = (
+                json.dumps(llm_specific_kwargs) if llm_specific_kwargs else None
+            )
+
+            conn.execute(
+                """
             INSERT INTO agents (id, name, provider, model_name, system_prompt, use_react_agent, max_tokens_trimmed, llm_specific_kwargs)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, [agent_id, name, provider, model_name, system_prompt, use_react_agent, max_tokens_trimmed, kwargs_json])
-            
+            """,
+                [
+                    agent_id,
+                    name,
+                    provider,
+                    model_name,
+                    system_prompt,
+                    use_react_agent,
+                    max_tokens_trimmed,
+                    kwargs_json,
+                ],
+            )
+
             return agent_id
-    
+
     async def close_async(self):
         """Async version of close"""
         async with self._conn_lock:
             if self._conn:
                 self._conn.close()
                 self._conn = None
-    
+
     def close(self):
         """Close the database connection"""
         if self._conn:
             self._conn.close()
             self._conn = None
-            
+
     @classmethod
     async def cleanup(cls):
         """Close all database connections"""
         async with cls._lock:
             for db_path, instance in cls._instances.items():
                 await instance.close_async()
-            cls._instances.clear() 
+            cls._instances.clear()
