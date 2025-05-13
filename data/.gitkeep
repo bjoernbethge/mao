@@ -1,0 +1,2 @@
+# This file ensures the data directory is included in git
+# but its contents are ignored (see .gitignore) 

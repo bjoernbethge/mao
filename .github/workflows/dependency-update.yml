@@ -1,0 +1,61 @@
+name: Update Dependencies
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'  # Every Monday at midnight
+  workflow_dispatch:  # Enables manual execution
+
+jobs:
+  update-dependencies:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Update dependencies
+        id: update
+        run: |
+          # Save current dependencies
+          cp uv.lock uv.lock.old
+          
+          # Update dependencies
+          uv pip compile pyproject.toml -o requirements.txt --all-extras
+          uv sync
+          
+          # Check if there are changes
+          if ! diff -q uv.lock uv.lock.old > /dev/null; then
+            echo "changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "changes=false" >> $GITHUB_OUTPUT
+          fi
+          
+          # Cleanup
+          rm uv.lock.old requirements.txt
+
+      - name: Create Pull Request
+        if: steps.update.outputs.changes == 'true'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          commit-message: 'chore: update dependencies'
+          title: 'chore: update dependencies'
+          body: |
+            This PR updates project dependencies to their latest compatible versions.
+            
+            Updated automatically by the Dependency Update workflow.
+          branch: dependency-update
+          delete-branch: true
+          labels: dependencies 
