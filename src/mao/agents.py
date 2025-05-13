@@ -1,24 +1,19 @@
 """
 Refactored agent classes with a generic Agent, a Supervisor, and a create_agent factory.
 Includes best-practice memory, checkpointing, and state management for production chatbots.
-All docstrings are in English.
 """
 
-from dotenv import load_dotenv
-load_dotenv()
-
-from typing import List, Optional, Any, Union, Callable, Dict, Type, Tuple, TypeVar, Awaitable, cast, Generic
+from typing import List, Optional, Any, Union, Callable, Dict, Tuple, TypeVar
 import asyncio
 import os
 import logging
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-
+from dotenv import load_dotenv
 # LangChain Core
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import SystemMessage, AIMessage, BaseMessage, trim_messages
 from langchain_core.runnables import RunnableConfig # For config in invoke/ainvoke
-
 # LLM Clients
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
@@ -28,9 +23,10 @@ from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph_supervisor import create_supervisor
 from langgraph.prebuilt import ToolNode, create_react_agent
-
 from .storage import KnowledgeTree, ExperienceTree
 from .mcp import MCPClient
+
+load_dotenv()
 
 T = TypeVar('T')
 
@@ -77,11 +73,13 @@ def _create_llm_client(
             llm_specific_kwargs["default_headers"]["anthropic-beta"] = "tools-2024-04-04"
         return ChatAnthropic(model=model_name, temperature=temperature, callbacks=actual_callbacks, streaming=stream, **llm_specific_kwargs)
     elif provider_lower == "ollama":
-        if OllamaLLM is None: raise ImportError("OllamaLLM is not available. Please install langchain_ollama.")
+        if OllamaLLM is None:
+            raise ImportError("OllamaLLM is not available. Please install langchain_ollama.")
         ollama_final_kwargs = {"model": model_name, "temperature": temperature, "callbacks": actual_callbacks, **llm_specific_kwargs}
         ollama_host = os.environ.get("OLLAMA_HOST")
-        if ollama_host and "base_url" not in ollama_final_kwargs: ollama_final_kwargs["base_url"] = ollama_host
-        return OllamaLLM(**ollama_final_kwargs) # type: ignore 
+        if ollama_host and "base_url" not in ollama_final_kwargs:
+            ollama_final_kwargs["base_url"] = ollama_host
+        return OllamaLLM(**ollama_final_kwargs) # type: ignore
     else:
         raise ValueError(f"Unsupported LLM provider: {provider}")
 
@@ -538,7 +536,7 @@ async def create_agent(
 
 async def main_example():
     """Example usage of the agent system."""
-    openai_agent_app = await create_agent(provider="openai", model_name="gpt-3.5-turbo")
+    await create_agent(provider="openai", model_name="gpt-3.5-turbo")
     logging.info("OpenAI Agent App created.")
     # ... other examples ...
 

@@ -5,7 +5,7 @@ Storage-related API endpoints (Configuration and Import/Export).
 import os
 import json
 import uuid
-from typing import Dict, Any, List
+from typing import Dict, Any
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from fastapi.responses import FileResponse
 

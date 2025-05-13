@@ -3,8 +3,6 @@ Tests for the MCP Agents API.
 Test the basic API endpoints and functionality.
 """
 
-import pytest
-import json
 
 
 def test_health_endpoint(api_test_client):

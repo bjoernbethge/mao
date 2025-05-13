@@ -3,21 +3,22 @@ Pytest fixtures für mcp_agents Tests.
 Produktionsreif, robust, DRY. Alle Docstrings auf Englisch.
 """
 
-from dotenv import load_dotenv
-load_dotenv()
 import os
 import pytest
 import asyncio
-from mao.storage import KnowledgeTree, ExperienceTree
-from mao.mcp import MCPClient
 import logging
 import httpx
 import socket
 import time
 import threading
 import uvicorn
+from dotenv import load_dotenv
+from mao.storage import KnowledgeTree, ExperienceTree
+from mao.mcp import MCPClient
 from fastapi.testclient import TestClient
 from mao.api.api import MCPAgentsAPI
+
+load_dotenv()
 
 try:
     from pytest_asyncio import fixture as asyncio_fixture

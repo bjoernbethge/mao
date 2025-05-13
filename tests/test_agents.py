@@ -5,16 +5,15 @@ Produktionsreif, asynchron, robust. Alle Docstrings auf Englisch.
 
 import pytest
 import asyncio
-from typing import List, Dict, Any
+from typing import Any
 import uuid
 import os
 import logging
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.callbacks import BaseCallbackHandler
 
 from mao.agents import create_agent, Supervisor, load_mcp_tools
-from mao.storage import KnowledgeTree, ExperienceTree
 from mao.mcp import MCPClient
 
 # Import pytest_asyncio if available for the fixture decorator, otherwise use pytest.fixture

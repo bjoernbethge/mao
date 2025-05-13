@@ -3,8 +3,6 @@ Tests für die MCP Agents API mit einem echten laufenden Server.
 Diese Tests verwenden einen realen HTTP-Server für eine realistischere Testumgebung.
 """
 
-import pytest
-import uuid
 import httpx
 import random
 import string

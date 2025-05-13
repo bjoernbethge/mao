@@ -6,7 +6,7 @@ Provides a REST API for managing and interacting with MCP agents.
 import os
 import logging
 from typing import Dict, Any, Optional, AsyncGenerator
-from fastapi import FastAPI, Depends, Request, Response
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError

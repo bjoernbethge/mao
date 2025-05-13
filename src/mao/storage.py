@@ -2,24 +2,22 @@
 KnowledgeTree and ExperienceTree: Qdrant-based vector stores for agent knowledge and experience.
 """
 
-from typing import List, Dict, Any, Optional, Tuple, TypedDict, AsyncGenerator, TypeVar, Generic, cast, Protocol, Callable, Type
+from typing import List, Dict, Any, Optional, Tuple, TypedDict, Callable
 import logging
 import os
 import uuid
 import time
 import asyncio
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 # Type definitions
-from typing_extensions import NotRequired, Annotated, override  # Python 3.12+ standard
+from typing_extensions import NotRequired  # Python 3.12+ standard
 
 # Modern Qdrant client with async API
 from qdrant_client.async_qdrant_client import AsyncQdrantClient 
 from qdrant_client import QdrantClient, models
-from qdrant_client.http.models import PointStruct, Filter, VectorParams, Distance, Payload
+from qdrant_client.http.models import PointStruct, VectorParams, Distance
 from qdrant_client.http.exceptions import UnexpectedResponse, ApiException, ResponseHandlingException
-from qdrant_client.models import PointIdsList, UpdateStatus, ScoredPoint
 
 # OpenAI embeddings with batched requests, async API and dimensions parameter
 from langchain_openai import OpenAIEmbeddings
@@ -440,18 +438,16 @@ class VectorStoreBase:
         return asyncio.run(self.get_entry_async(point_id))
 
     @retry(stop=DEFAULT_RETRY_STOP, wait=DEFAULT_RETRY_WAIT, retry=retry_if_exception_type(QDRANT_RETRY_EXCEPTION))
-    async def clear_all_points_async(self) -> bool:
+    async def clear_all_points_async(self) -> None:
         """Clear all points from collection asynchronously"""
         try:
-            result = await self.async_client.delete(
+            await self.async_client.delete(
                 collection_name=self.collection_name,
                 points_selector=models.Filter(must=[])
             )
-            logging.info(f"Cleared all points from collection {self.collection_name}")
-            return True
         except Exception as e:
             logging.error(f"Failed to clear all points: {e}")
-            return False
+            raise
 
     # Synchronous wrapper
     def clear_all_points(self) -> bool:

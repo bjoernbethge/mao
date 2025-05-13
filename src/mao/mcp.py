@@ -3,7 +3,7 @@ MCPClient and MCP integration for agent framework.
 Production-ready, typed, and DRY. All docstrings in English.
 """
 
-from typing import Optional, Dict, Any, List, TypedDict, Union, Callable, TypeVar, Awaitable
+from typing import Optional, Dict, Any, List, TypedDict, Callable, TypeVar, Awaitable
 import os
 import json
 import asyncio

@@ -2,14 +2,13 @@
 MCP-related API endpoints (Servers and Tools).
 """
 
-import logging
 import uuid
 import os
 import json
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 
 from .db import ConfigDB
 from .models import (
@@ -305,7 +304,7 @@ async def get_mcp_config_file(
     temp_file = Path("temp_mcp_config.json")
     
     # Generate the config file
-    export_result = await export_mcp_config(filepath=str(temp_file), db=db)
+    await export_mcp_config(filepath=str(temp_file), db=db)
     
     return FileResponse(
         path=temp_file,

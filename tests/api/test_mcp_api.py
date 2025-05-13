@@ -3,9 +3,6 @@ Tests for the MCP API endpoints.
 Test CRUD operations on servers, tools, and related functionality.
 """
 
-import pytest
-import json
-import uuid
 import random
 import string
 import httpx

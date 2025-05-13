@@ -4,7 +4,7 @@ Shared Pydantic models for API endpoints.
 
 from typing import List, Dict, Any, Optional, Union, Generic, TypeVar
 from datetime import datetime
-from pydantic import BaseModel, Field, ConfigDict, create_model
+from pydantic import BaseModel, Field, ConfigDict
 
 # Generic type for paginated responses
 T = TypeVar('T')

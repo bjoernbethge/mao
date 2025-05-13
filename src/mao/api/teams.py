@@ -9,7 +9,7 @@ from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Depends
 
 from .db import ConfigDB
-from .api import get_config_db, get_active_agents, active_agents
+from .api import get_config_db, active_agents
 from ..agents import Supervisor, create_agent
 
 from .models import (
@@ -23,8 +23,7 @@ from .models import (
     SupervisorUpdate,
     SupervisorResponse,
     TeamMessage,
-    TeamResponseMessage,
-    PaginatedResponse
+    TeamResponseMessage
 )
 
 # Create router
@@ -396,7 +395,6 @@ async def start_team(team_id: str, db: ConfigDB = Depends(get_config_db)):
                     agent_tools = await db.get_agent_tools(agent_id, enabled_only=True)
                     if agent_tools:
                         # Import necessary modules for creating tools
-                        from langchain_mcp_adapters.tools import load_mcp_tools
                         try:
                             # Convert DB tool objects to LangChain tools
                             tool_list = []

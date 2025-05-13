@@ -5,8 +5,6 @@ Produktionsreif, asynchron, robust. Alle Docstrings auf Englisch.
 
 import pytest
 import asyncio
-import os
-import json
 from mao.mcp import MCPClient
 import logging
 
@@ -110,7 +108,6 @@ async def test_mcp_client_reload(mcp_client):
     """
     # Get initial state
     initial_servers = await asyncio.to_thread(mcp_client.list_servers)
-    initial_connections = mcp_client.connections.copy() if hasattr(mcp_client, 'connections') else {}
     
     # Set some tool states before reload
     test_tools = ["tool_before_reload1", "tool_before_reload2"]

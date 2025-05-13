@@ -3,10 +3,6 @@ Tests for the Teams API endpoints.
 Test team operations, supervisor management, and team member functionality.
 """
 
-import pytest
-import json
-import uuid
-import httpx
 
 
 def test_create_team(api_test_client):

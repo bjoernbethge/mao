@@ -4,12 +4,11 @@ Agent-related API endpoints.
 
 import logging
 import uuid
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Depends, Query, Path, status
 
 from ..agents import create_agent
 from .db import ConfigDB
-from ..mcp import MCPClient
 
 from .models import (
     AgentCreate, 
@@ -19,7 +18,7 @@ from .models import (
     AgentResponseMessage,
     ToolResponse
 )
-from .api import get_config_db, get_active_agents, active_agents
+from .api import get_config_db, active_agents
 
 # Create router
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -138,7 +137,6 @@ async def start_agent(
         agent_tools = await db.get_agent_tools(agent_id, enabled_only=True)
         if agent_tools:
             # Import necessary modules for creating tools
-            from langchain_mcp_adapters.tools import load_mcp_tools
             try:
                 # Convert DB tool objects to LangChain tools
                 tool_list = []

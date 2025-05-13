@@ -3,10 +3,7 @@ Tests for the Agents API endpoints.
 Test agent creation, retrieval, update, and deletion.
 """
 
-import pytest
-import json
 import uuid
-import httpx
 
 
 def test_create_agent(api_test_client):

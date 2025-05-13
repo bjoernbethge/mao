@@ -7,7 +7,7 @@ MCP Agents: Modern agent framework with KnowledgeTree, ExperienceTree, and LangC
 __version__ = "1.0.0"
 
 # Modern typing marker
-from typing import TYPE_CHECKING
+# from typing import TYPE_CHECKING
 
 # Expose the main factory function and primary classes
 from .agents import create_agent, Agent, Supervisor
