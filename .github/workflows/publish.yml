@@ -18,18 +18,18 @@ jobs:
       id-token: write  # For trusted publishing to PyPI
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Install build dependencies
         run: uv pip install build twine
@@ -37,18 +37,12 @@ jobs:
       - name: Update version if provided
         if: github.event.inputs.version != ''
         run: |
-          # Python script to update version in pyproject.toml
-          python -c "
-          import re
-          with open('pyproject.toml', 'r') as f:
-              content = f.read()
-          content = re.sub(r'version = \"[^\"]+\"', f'version = \"{\"${{ github.event.inputs.version }}\"}\"', content)
-          with open('pyproject.toml', 'w') as f:
-              f.write(content)
-          "
+          python -c "import toml; d=toml.load('pyproject.toml'); d['project']['version']='${{ github.event.inputs.version }}'; toml.dump(d, open('pyproject.toml','w'))"
 
       - name: Build package
         run: uv run python -m build
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1 
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          skip-existing: true 

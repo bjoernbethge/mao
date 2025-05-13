@@ -20,21 +20,25 @@ jobs:
   multi-platform-build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
         run: |
-          git clone https://github.com/${{ github.repository }}.git .
-          git checkout ${{ github.sha }}
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Set up Docker tags
+        id: tags
         run: |
-          # Extract repository name
           REPO_NAME=$(echo "${{ github.repository }}" | cut -d '/' -f 2)
-          
-          # Set up tags based on event type
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
             VERSION=${GITHUB_REF#refs/tags/}
             TAGS="ghcr.io/${{ github.repository }}:${VERSION}"
-            # Add additional tags for semver
             if [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
               MAJOR=$(echo $VERSION | cut -d. -f1)
               MINOR=$(echo $VERSION | cut -d. -f2)
@@ -46,32 +50,14 @@ jobs:
             BRANCH=$(echo ${GITHUB_REF#refs/heads/} | sed -r 's/[\/]/-/g')
             TAGS="ghcr.io/${{ github.repository }}:${BRANCH}"
           fi
-          
-          # Add SHA tag
           SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
           TAGS="$TAGS,ghcr.io/${{ github.repository }}:sha-${SHA_SHORT}"
-          
           echo "TAGS=${TAGS}" >> $GITHUB_ENV
           echo "Using tags: ${TAGS}"
-
-      - name: Set up QEMU
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-user-static
-
-      - name: Set up Docker Buildx
-        run: |
-          docker buildx create --name mybuilder --use
-          docker buildx inspect --bootstrap
-
-      - name: Login to GitHub Container Registry
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Build and push
         run: |
           PLATFORMS="${{ github.event.inputs.platforms || 'linux/amd64,linux/arm64' }}"
-          
           docker buildx build \
             --platform ${PLATFORMS} \
             --push \

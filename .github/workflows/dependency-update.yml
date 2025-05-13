@@ -5,6 +5,10 @@ on:
     - cron: '0 0 * * 1'  # Every Monday at midnight
   workflow_dispatch:  # Enables manual execution
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   update-dependencies:
     runs-on: ubuntu-latest
@@ -13,42 +17,34 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Update dependencies
         id: update
         run: |
-          # Save current dependencies
-          cp uv.lock uv.lock.old
-          
-          # Update dependencies
-          uv pip compile pyproject.toml -o requirements.txt --all-extras
-          uv sync
-          
-          # Check if there are changes
+          cp uv.lock uv.lock.old || true
+          uv sync --upgrade
           if ! diff -q uv.lock uv.lock.old > /dev/null; then
             echo "changes=true" >> $GITHUB_OUTPUT
           else
             echo "changes=false" >> $GITHUB_OUTPUT
           fi
-          
-          # Cleanup
-          rm uv.lock.old requirements.txt
+          rm -f uv.lock.old
 
       - name: Create Pull Request
         if: steps.update.outputs.changes == 'true'
-        uses: peter-evans/create-pull-request@v5
+        uses: peter-evans/create-pull-request@v6
         with:
           commit-message: 'chore: update dependencies'
           title: 'chore: update dependencies'
@@ -57,5 +53,6 @@ jobs:
             
             Updated automatically by the Dependency Update workflow.
           branch: dependency-update
-          delete-branch: true
-          labels: dependencies 
+          labels: dependencies
+          base: main
+          token: ${{ secrets.GITHUB_TOKEN }} 

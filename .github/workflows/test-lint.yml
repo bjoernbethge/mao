@@ -36,14 +36,15 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          
+          cache: 'pip'
+      
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
       
       - name: Create data directory
         run: mkdir -p data
@@ -70,8 +71,7 @@ jobs:
       - name: Test with pytest
         run: uv run pytest --cov=src tests/
         
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v3
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false 
+          token: ${{ secrets.CODECOV_TOKEN }} 
