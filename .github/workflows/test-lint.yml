@@ -17,11 +17,24 @@ jobs:
         ports:
           - 6333:6333
           - 6334:6334
+        # Gesundheitscheck für Qdrant
+        options: >-
+          --health-cmd "curl -f http://localhost:6333/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
       
       ollama:
         image: ollama/ollama:latest
         ports:
           - 11434:11434
+        # Erhöhung der Ressourcen für Ollama
+        options: >-
+          --health-cmd "curl -sf http://localhost:11434/api/version || exit 1"
+          --health-interval 10s
+          --health-timeout 15s
+          --health-retries 10
+          --memory 2g
     
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -51,6 +64,8 @@ jobs:
       - name: Install dependencies
         run: |
           uv sync
+          # Installiere auch die Entwicklungsabhängigkeiten explizit
+          uv pip install pytest pytest-asyncio pytest-cov
         
       - name: Lint with ruff
         run: uv run ruff check .
@@ -61,12 +76,17 @@ jobs:
       - name: Type check with mypy
         run: uv run mypy .
       
-      - name: Wait for services
+      - name: Verify services are running
         run: |
-          # Wait for Qdrant to be ready
-          timeout 60s bash -c 'until curl -s http://localhost:6333/health; do sleep 1; done'
-          # Wait for Ollama to be ready (may take longer to initialize)
-          timeout 120s bash -c 'until curl -s http://localhost:11434/api/version; do sleep 2; done'
+          # Überprüfe Qdrant-Status
+          echo "Checking Qdrant status..."
+          curl -s http://localhost:6333/health
+          echo ""
+          
+          # Überprüfe Ollama-Status
+          echo "Checking Ollama status..."
+          curl -s http://localhost:11434/api/version
+          echo ""
         
       - name: Test with pytest
         run: uv run pytest --cov=src tests/
