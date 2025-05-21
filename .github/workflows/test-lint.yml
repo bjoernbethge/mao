@@ -44,6 +44,10 @@ jobs:
         run: |
           docker pull ollama/ollama:latest
           docker run -d --name ollama -p 11434:11434 ollama/ollama:latest
+
+      - name: Pull dock mcp toolkit container
+        run: |
+          docker pull alpine/socat:latest
       
       - name: Install uv
         run: |
@@ -66,18 +70,17 @@ jobs:
           # Erstelle eine realistische mcp.json Datei für Tests mit echten Server- und Tool-Definitionen
           echo '{
             "mcpServers": {
-              "test-stdio-server": {
-                "transport": "stdio",
-                "command": "echo",
-                "args": ["Hello from test server"]
-              },
-              "test-sse-server": {
-                "transport": "sse",
-                "url": "http://localhost:8080/events",
-                "headers": {
-                  "Authorization": "Bearer test-token"
-                }
-              }
+              "dockerailabs": {
+                  "command": "docker",
+                  "args": [
+                    "run",
+                    "-i",
+                    "--rm",
+                    "alpine/socat",
+                    "STDIO",
+                    "TCP:host.docker.internal:8811"
+                  ]
+                },
             }
           }' > ./mcp.json
         
