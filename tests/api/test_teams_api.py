@@ -1,8 +1,7 @@
 """
-Tests for the teams API endpoints.
+Tests für die Teams API Endpoints.
 """
 
-import pytest
 import uuid
 
 
@@ -21,75 +20,73 @@ def test_create_team(api_test_client):
     assert "created_at" in team
 
 
-@pytest.mark.skip(reason="Supervisor endpoints not implemented yet")
-def test_create_and_get_supervisor(api_test_client):
-    """Test creating and getting a supervisor."""
+def test_create_team_with_supervisor(api_test_client):
+    """Test creating a team with a supervisor."""
     client, _ = api_test_client
 
-    # Create a team first
-    team_data = {"name": "Team with Supervisor", "description": "For supervisor test"}
+    # Zuerst einen Agenten erstellen, der als Supervisor dienen wird
+    agent_data = {
+        "name": "Supervisor Agent",
+        "provider": "openai",
+        "model_name": "gpt-4",
+        "system_prompt": "You are a supervisor agent",
+    }
+    agent_response = client.post("/agents/", json=agent_data)
+    assert agent_response.status_code == 201
+    agent_id = agent_response.json()["id"]
+
+    # Supervisor erstellen
+    supervisor_data = {
+        "agent_id": agent_id,
+        "system_prompt": "Supervisor prompt",
+        "strategy": "team_manager",
+        "add_handoff_back_messages": True,
+        "parallel_tool_calls": True,
+    }
+    supervisor_response = client.post("/teams/supervisors", json=supervisor_data)
+    assert supervisor_response.status_code == 201
+    supervisor_id = supervisor_response.json()["id"]
+
+    # Team mit Supervisor erstellen
+    team_data = {
+        "name": "Team with Supervisor",
+        "description": "For supervisor test",
+        "supervisor_id": supervisor_id,
+    }
     team_response = client.post("/teams/", json=team_data)
+    assert team_response.status_code == 201
     team_id = team_response.json()["id"]
 
-    # Create a supervisor
-    supervisor_data = {
-        "name": "Test Supervisor",
-        "description": "A test supervisor",
-        "team_id": team_id,
-        "model": "gpt-4",
-        "prompt": "You are a supervisor",
-    }
-
-    supervisor_response = client.post("/supervisors/", json=supervisor_data)
-    assert supervisor_response.status_code == 201
-
-    supervisor = supervisor_response.json()
-    assert supervisor["name"] == supervisor_data["name"]
-    assert supervisor["team_id"] == team_id
-    assert "id" in supervisor
-
-    # Get the supervisor
-    get_response = client.get(f"/supervisors/{supervisor['id']}")
+    # Überprüfen, dass der Supervisor korrekt zugewiesen wurde
+    get_response = client.get(f"/teams/{team_id}")
     assert get_response.status_code == 200
-
-    get_supervisor = get_response.json()
-    assert get_supervisor["id"] == supervisor["id"]
-    assert get_supervisor["name"] == supervisor_data["name"]
+    team = get_response.json()
+    assert team["supervisor_id"] == supervisor_id
 
 
-@pytest.mark.skip(reason="Supervisor and member endpoints not implemented yet")
-def test_team_with_supervisor_and_members(api_test_client):
-    """Test creating a team with a supervisor and members."""
+def test_team_with_members(api_test_client):
+    """Test creating a team with members."""
     client, _ = api_test_client
 
     # Create a team
-    team_data = {"name": "Full Team", "description": "Team with supervisor and members"}
+    team_data = {"name": "Team with Members", "description": "Team with members test"}
     team_response = client.post("/teams/", json=team_data)
+    assert team_response.status_code == 201
     team_id = team_response.json()["id"]
-
-    # Create a supervisor
-    supervisor_data = {
-        "name": "Team Supervisor",
-        "description": "The team supervisor",
-        "team_id": team_id,
-        "model": "gpt-4",
-        "prompt": "You are the team supervisor",
-    }
-
-    supervisor_response = client.post("/supervisors/", json=supervisor_data)
-    supervisor_id = supervisor_response.json()["id"]
 
     # Create agents
     agent1_data = {
         "name": "Team Member 1",
         "description": "First team member",
-        "model": "gpt-3.5-turbo",
+        "provider": "openai",
+        "model_name": "gpt-3.5-turbo",
     }
 
     agent2_data = {
         "name": "Team Member 2",
         "description": "Second team member",
-        "model": "gpt-3.5-turbo",
+        "provider": "openai",
+        "model_name": "gpt-3.5-turbo",
     }
 
     agent1_response = client.post("/agents/", json=agent1_data)
@@ -111,8 +108,97 @@ def test_team_with_supervisor_and_members(api_test_client):
         "role": "researcher",
     }
 
-    member1_response = client.post("/team-members/", json=member1_data)
-    member2_response = client.post("/team-members/", json=member2_data)
+    member1_response = client.post(f"/teams/{team_id}/members", json=member1_data)
+    member2_response = client.post(f"/teams/{team_id}/members", json=member2_data)
+
+    assert member1_response.status_code == 201
+    assert member2_response.status_code == 201
+
+    # Get team members
+    members_response = client.get(f"/teams/{team_id}/members")
+    assert members_response.status_code == 200
+    members = members_response.json()
+
+    # Check team has correct members
+    assert len(members) == 2
+    member_agent_ids = [m["agent_id"] for m in members]
+    assert agent1_id in member_agent_ids
+    assert agent2_id in member_agent_ids
+
+
+def test_team_with_supervisor_and_members(api_test_client):
+    """Test creating a team with a supervisor and members."""
+    client, _ = api_test_client
+
+    # Zuerst einen Agenten erstellen, der als Supervisor dienen wird
+    supervisor_agent_data = {
+        "name": "Team Supervisor Agent",
+        "provider": "openai",
+        "model_name": "gpt-4",
+        "system_prompt": "You are a supervisor agent",
+    }
+    supervisor_agent_response = client.post("/agents/", json=supervisor_agent_data)
+    assert supervisor_agent_response.status_code == 201
+    supervisor_agent_id = supervisor_agent_response.json()["id"]
+
+    # Supervisor erstellen
+    supervisor_data = {
+        "agent_id": supervisor_agent_id,
+        "system_prompt": "Supervisor prompt",
+        "strategy": "team_manager",
+        "add_handoff_back_messages": True,
+        "parallel_tool_calls": True,
+    }
+    supervisor_response = client.post("/teams/supervisors", json=supervisor_data)
+    assert supervisor_response.status_code == 201
+    supervisor_id = supervisor_response.json()["id"]
+
+    # Create a team with supervisor directly assigned
+    team_data = {
+        "name": "Full Team",
+        "description": "Team with supervisor and members",
+        "supervisor_id": supervisor_id,
+    }
+    team_response = client.post("/teams/", json=team_data)
+    assert team_response.status_code == 201
+    team_id = team_response.json()["id"]
+
+    # Create agents
+    agent1_data = {
+        "name": "Team Member 1",
+        "description": "First team member",
+        "provider": "openai",
+        "model_name": "gpt-3.5-turbo",
+    }
+
+    agent2_data = {
+        "name": "Team Member 2",
+        "description": "Second team member",
+        "provider": "openai",
+        "model_name": "gpt-3.5-turbo",
+    }
+
+    agent1_response = client.post("/agents/", json=agent1_data)
+    agent2_response = client.post("/agents/", json=agent2_data)
+
+    agent1_id = agent1_response.json()["id"]
+    agent2_id = agent2_response.json()["id"]
+
+    # Add agents to team
+    member1_data = {
+        "agent_id": agent1_id,
+        "team_id": team_id,
+        "role": "assistant",
+    }
+
+    member2_data = {
+        "agent_id": agent2_id,
+        "team_id": team_id,
+        "role": "researcher",
+    }
+
+    member1_response = client.post(f"/teams/{team_id}/members", json=member1_data)
+    member2_response = client.post(f"/teams/{team_id}/members", json=member2_data)
 
     assert member1_response.status_code == 201
     assert member2_response.status_code == 201
@@ -121,10 +207,17 @@ def test_team_with_supervisor_and_members(api_test_client):
     team_response = client.get(f"/teams/{team_id}")
     team = team_response.json()
 
-    # Check team has correct supervisor and members
+    # Check team has correct supervisor
     assert team["supervisor_id"] == supervisor_id
-    assert len(team["members"]) == 2
-    member_agent_ids = [m["agent_id"] for m in team["members"]]
+
+    # Get team members
+    members_response = client.get(f"/teams/{team_id}/members")
+    assert members_response.status_code == 200
+    members = members_response.json()
+
+    # Check team has correct members
+    assert len(members) == 2
+    member_agent_ids = [m["agent_id"] for m in members]
     assert agent1_id in member_agent_ids
     assert agent2_id in member_agent_ids
 
@@ -156,7 +249,6 @@ def test_team_update_and_delete(api_test_client):
     assert get_response.status_code == 404
 
 
-@pytest.mark.skip(reason="Member endpoints not implemented yet")
 def test_team_member_update_and_remove(api_test_client):
     """Test updating and removing a team member."""
     client, _ = api_test_client
@@ -170,7 +262,8 @@ def test_team_member_update_and_remove(api_test_client):
     agent_data = {
         "name": "Test Agent",
         "description": "For member test",
-        "model": "gpt-3.5-turbo",
+        "provider": "openai",
+        "model_name": "gpt-3.5-turbo",
     }
     agent_response = client.post("/agents/", json=agent_data)
     agent_id = agent_response.json()["id"]
@@ -181,73 +274,36 @@ def test_team_member_update_and_remove(api_test_client):
         "team_id": team_id,
         "role": "assistant",
     }
-    member_response = client.post("/team-members/", json=member_data)
-    member_id = member_response.json()["id"]
+    member_response = client.post(f"/teams/{team_id}/members", json=member_data)
+    assert member_response.status_code == 201
+
+    # Überprüfen, dass der Member hinzugefügt wurde
+    members_response = client.get(f"/teams/{team_id}/members")
+    assert members_response.status_code == 200
+    members = members_response.json()
+    assert len(members) == 1
+    assert members[0]["agent_id"] == agent_id
+    assert members[0]["role"] == "assistant"
 
     # Update member role
     update_data = {"role": "researcher"}
-    update_response = client.put(f"/team-members/{member_id}", json=update_data)
+    update_response = client.put(
+        f"/teams/{team_id}/members/{agent_id}", json=update_data
+    )
 
     assert update_response.status_code == 200
     updated_member = update_response.json()
     assert updated_member["role"] == update_data["role"]
 
     # Remove member from team
-    delete_response = client.delete(f"/team-members/{member_id}")
+    delete_response = client.delete(f"/teams/{team_id}/members/{agent_id}")
     assert delete_response.status_code == 204
 
     # Verify member is removed
-    team_response = client.get(f"/teams/{team_id}")
-    team = team_response.json()
-    assert len(team["members"]) == 0
-
-
-@pytest.mark.skip(reason="Supervisor endpoints not implemented yet")
-def test_supervisor_lifecycle(api_test_client):
-    """Test the full lifecycle of a supervisor."""
-    client, _ = api_test_client
-
-    # Create a team
-    team_data = {"name": "Supervisor Team", "description": "For supervisor lifecycle"}
-    team_response = client.post("/teams/", json=team_data)
-    team_id = team_response.json()["id"]
-
-    # Create a supervisor
-    supervisor_data = {
-        "name": "Lifecycle Supervisor",
-        "description": "Testing lifecycle",
-        "team_id": team_id,
-        "model": "gpt-4",
-        "prompt": "Initial prompt",
-    }
-
-    supervisor_response = client.post("/supervisors/", json=supervisor_data)
-    supervisor_id = supervisor_response.json()["id"]
-
-    # Update the supervisor
-    update_data = {
-        "name": "Updated Supervisor",
-        "prompt": "Updated prompt",
-    }
-    update_response = client.put(f"/supervisors/{supervisor_id}", json=update_data)
-
-    assert update_response.status_code == 200
-    updated_supervisor = update_response.json()
-    assert updated_supervisor["name"] == update_data["name"]
-    assert updated_supervisor["prompt"] == update_data["prompt"]
-
-    # Delete the supervisor
-    delete_response = client.delete(f"/supervisors/{supervisor_id}")
-    assert delete_response.status_code == 204
-
-    # Verify supervisor is deleted
-    get_response = client.get(f"/supervisors/{supervisor_id}")
-    assert get_response.status_code == 404
-
-    # Verify team no longer has a supervisor
-    team_response = client.get(f"/teams/{team_id}")
-    team = team_response.json()
-    assert team.get("supervisor_id") is None
+    members_response = client.get(f"/teams/{team_id}/members")
+    assert members_response.status_code == 200
+    members = members_response.json()
+    assert len(members) == 0
 
 
 def test_get_team_not_found(api_test_client):
@@ -329,52 +385,6 @@ def test_list_teams(api_test_client):
     assert "Team 2" in team_names
 
 
-@pytest.mark.skip(reason="Supervisor endpoints not implemented yet")
-def test_list_supervisors(api_test_client):
-    """Test listing all supervisors."""
-    client, _ = api_test_client
-
-    # Create a team
-    team_data = {
-        "name": "Supervisor List Team",
-        "description": "For listing supervisors",
-    }
-    team_response = client.post("/teams/", json=team_data)
-    team_id = team_response.json()["id"]
-
-    # Create some supervisors
-    supervisor1_data = {
-        "name": "Supervisor 1",
-        "description": "First supervisor",
-        "team_id": team_id,
-        "model": "gpt-4",
-        "prompt": "Prompt 1",
-    }
-
-    supervisor2_data = {
-        "name": "Supervisor 2",
-        "description": "Second supervisor",
-        "team_id": team_id,
-        "model": "gpt-4",
-        "prompt": "Prompt 2",
-    }
-
-    client.post("/supervisors/", json=supervisor1_data)
-    client.post("/supervisors/", json=supervisor2_data)
-
-    # List all supervisors
-    response = client.get("/supervisors/")
-    assert response.status_code == 200
-
-    supervisors = response.json()
-    assert isinstance(supervisors, list)
-    assert len(supervisors) >= 2
-    supervisor_names = [s["name"] for s in supervisors]
-    assert "Supervisor 1" in supervisor_names
-    assert "Supervisor 2" in supervisor_names
-
-
-@pytest.mark.skip(reason="Member endpoints not implemented yet")
 def test_get_team_members(api_test_client):
     """Test getting members of a specific team."""
     client, _ = api_test_client
@@ -388,12 +398,14 @@ def test_get_team_members(api_test_client):
     agent1_data = {
         "name": "Member Agent 1",
         "description": "First member agent",
-        "model": "gpt-3.5-turbo",
+        "provider": "openai",
+        "model_name": "gpt-3.5-turbo",
     }
     agent2_data = {
         "name": "Member Agent 2",
         "description": "Second member agent",
-        "model": "gpt-3.5-turbo",
+        "provider": "openai",
+        "model_name": "gpt-3.5-turbo",
     }
 
     agent1_response = client.post("/agents/", json=agent1_data)
@@ -415,8 +427,8 @@ def test_get_team_members(api_test_client):
         "role": "researcher",
     }
 
-    client.post("/team-members/", json=member1_data)
-    client.post("/team-members/", json=member2_data)
+    client.post(f"/teams/{team_id}/members", json=member1_data)
+    client.post(f"/teams/{team_id}/members", json=member2_data)
 
     # Get team members
     response = client.get(f"/teams/{team_id}/members")
