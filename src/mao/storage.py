@@ -2,36 +2,35 @@
 KnowledgeTree and ExperienceTree: Qdrant-based vector stores for agent knowledge and experience.
 """
 
-from typing import List, Dict, Any, Optional, Tuple, TypedDict, Callable, Awaitable
+import asyncio
 import logging
 import os
-import uuid
 import time
-import asyncio
+import uuid
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
+from typing import Any, TypedDict
 
 # Type definitions
 from typing_extensions import NotRequired  # Python 3.12+ standard
 
 # Modern Qdrant client with async API
-from qdrant_client.async_qdrant_client import AsyncQdrantClient
+from langchain.schema.embeddings import Embeddings
+from langchain_community.embeddings import FastEmbedEmbeddings
 from qdrant_client import QdrantClient, models
-from qdrant_client.http.models import PointStruct, VectorParams, Distance
+from qdrant_client.async_qdrant_client import AsyncQdrantClient
 from qdrant_client.http.exceptions import (
-    UnexpectedResponse,
     ApiException,
     ResponseHandlingException,
+    UnexpectedResponse,
 )
-
-# OpenAI embeddings with batched requests, async API and dimensions parameter
-from langchain_community.embeddings import FastEmbedEmbeddings
-from langchain.schema.embeddings import Embeddings
+from qdrant_client.http.models import Distance, PointStruct, VectorParams
 from tenacity import (
+    RetryError,
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
-    RetryError,
 )
 
 # Environment variables with typing
@@ -46,8 +45,8 @@ class SearchResult(TypedDict):
     id: str
     score: float
     page_content: str
-    tags: List[str]
-    relations: NotRequired[List[Dict[str, Any]]]
+    tags: list[str]
+    relations: NotRequired[list[dict[str, Any]]]
 
 
 # --- Embedding Model Factory ---
@@ -55,7 +54,7 @@ class EmbeddingProvider:
     """Factory for embedding models with proper dimension handling"""
 
     @staticmethod
-    async def create_embeddings() -> Tuple[Embeddings, int]:
+    async def create_embeddings() -> tuple[Embeddings, int]:
         """Create embedding model and return it with its dimension"""
 
         try:
@@ -100,9 +99,7 @@ class VectorStoreBase:
         url: str = QDRANT_URL,
         collection_name: str = "default_collection",
         recreate_on_dim_mismatch: bool = False,
-        embedding_provider: Optional[
-            Callable[[], Awaitable[Tuple[Embeddings, int]]]
-        ] = None,
+        embedding_provider: Callable[[], Awaitable[tuple[Embeddings, int]]] | None = None,
     ):
         self.collection_name = collection_name
         self.qdrant_url = url
@@ -116,8 +113,8 @@ class VectorStoreBase:
         self.async_client = AsyncQdrantClient(url=self.qdrant_url)
 
         # Initialize embeddings (will be set in async_init)
-        self.embed: Optional[Embeddings] = None
-        self.embed_dim: Optional[int] = None
+        self.embed: Embeddings | None = None
+        self.embed_dim: int | None = None
         self._embedding_provider = (
             embedding_provider or EmbeddingProvider.create_embeddings
         )
@@ -139,9 +136,7 @@ class VectorStoreBase:
         url: str = QDRANT_URL,
         collection_name: str = "default_collection",
         recreate_on_dim_mismatch: bool = False,
-        embedding_provider: Optional[
-            Callable[[], Awaitable[Tuple[Embeddings, int]]]
-        ] = None,
+        embedding_provider: Callable[[], Awaitable[tuple[Embeddings, int]]] | None = None,
     ) -> "VectorStoreBase":
         """Factory method for async initialization"""
         instance = cls(
@@ -262,7 +257,7 @@ class VectorStoreBase:
         wait=DEFAULT_RETRY_WAIT,
         retry=retry_if_exception_type(QDRANT_RETRY_EXCEPTION),
     )
-    async def add_entry_async(self, text: str, tags: Optional[List[str]] = None) -> str:
+    async def add_entry_async(self, text: str, tags: list[str] | None = None) -> str:
         """
         Add entry to vector store asynchronously.
         """
@@ -302,7 +297,7 @@ class VectorStoreBase:
             raise QdrantOperationError(f"Failed to add entry: {e}") from e
 
     # Synchronous wrapper for backward compatibility
-    def add_entry(self, text: str, tags: Optional[List[str]] = None) -> str:
+    def add_entry(self, text: str, tags: list[str] | None = None) -> str:
         """Synchronous wrapper for add_entry_async"""
         return asyncio.run(self.add_entry_async(text, tags))
 
@@ -311,7 +306,7 @@ class VectorStoreBase:
         wait=DEFAULT_RETRY_WAIT,
         retry=retry_if_exception_type(QDRANT_RETRY_EXCEPTION),
     )
-    async def search_async(self, query: str, k: int = 3) -> List[SearchResult]:
+    async def search_async(self, query: str, k: int = 3) -> list[SearchResult]:
         """
         Search for similar vectors asynchronously.
         """
@@ -356,7 +351,7 @@ class VectorStoreBase:
                     except Exception as e3:
                         logging.error(f"All search attempts failed: {e1}, {e2}, {e3}")
                         return []
-            formatted_hits: List[SearchResult] = []
+            formatted_hits: list[SearchResult] = []
             for r in results:
                 try:
                     payload = getattr(r, "payload", {}) or {}
@@ -376,7 +371,7 @@ class VectorStoreBase:
             return []
 
     # Synchronous wrapper for backward compatibility
-    def search(self, query: str, k: int = 3) -> List[SearchResult]:
+    def search(self, query: str, k: int = 3) -> list[SearchResult]:
         """Synchronous wrapper for search_async"""
         return asyncio.run(self.search_async(query, k))
 
@@ -410,7 +405,7 @@ class VectorStoreBase:
         wait=DEFAULT_RETRY_WAIT,
         retry=retry_if_exception_type(QDRANT_RETRY_EXCEPTION),
     )
-    async def get_entry_async(self, point_id: str) -> Optional[Dict[str, Any]]:
+    async def get_entry_async(self, point_id: str) -> dict[str, Any] | None:
         """Get entry by ID asynchronously"""
         try:
             res_list = await self.async_client.retrieve(
@@ -437,7 +432,7 @@ class VectorStoreBase:
             return None
 
     # Synchronous wrapper
-    def get_entry(self, point_id: str) -> Optional[Dict[str, Any]]:
+    def get_entry(self, point_id: str) -> dict[str, Any] | None:
         """Synchronous wrapper for get_entry_async"""
         return asyncio.run(self.get_entry_async(point_id))
 
@@ -492,13 +487,13 @@ class VectorStoreBase:
         """Synchronous wrapper for add_tag_async"""
         return asyncio.run(self.add_tag_async(point_id, tag))
 
-    async def get_tags_async(self, point_id: str) -> List[str]:
+    async def get_tags_async(self, point_id: str) -> list[str]:
         """Get tags for entry asynchronously"""
         entry = await self.get_entry_async(point_id)
         return entry.get("tags", []) if entry else []
 
     # Synchronous wrapper
-    def get_tags(self, point_id: str) -> List[str]:
+    def get_tags(self, point_id: str) -> list[str]:
         """Synchronous wrapper for get_tags_async"""
         return asyncio.run(self.get_tags_async(point_id))
 
@@ -533,8 +528,8 @@ class VectorStoreBase:
         return asyncio.run(self.add_relation_async(from_id, to_id, rel_type))
 
     async def get_relations_async(
-        self, point_id: str, rel_type: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        self, point_id: str, rel_type: str | None = None
+    ) -> list[dict[str, Any]]:
         """Get relations for entry asynchronously"""
         entry = await self.get_entry_async(point_id)
         if not entry:
@@ -547,13 +542,13 @@ class VectorStoreBase:
 
     # Synchronous wrapper
     def get_relations(
-        self, point_id: str, rel_type: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        self, point_id: str, rel_type: str | None = None
+    ) -> list[dict[str, Any]]:
         """Synchronous wrapper for get_relations_async"""
         return asyncio.run(self.get_relations_async(point_id, rel_type))
 
     async def remove_relation_async(
-        self, from_id: str, to_id: str, rel_type: Optional[str] = None
+        self, from_id: str, to_id: str, rel_type: str | None = None
     ) -> bool:
         """Remove relation between entries asynchronously"""
         entry = await self.get_entry_async(from_id)
@@ -586,7 +581,7 @@ class VectorStoreBase:
 
     # Synchronous wrapper
     def remove_relation(
-        self, from_id: str, to_id: str, rel_type: Optional[str] = None
+        self, from_id: str, to_id: str, rel_type: str | None = None
     ) -> bool:
         """Synchronous wrapper for remove_relation_async"""
         return asyncio.run(self.remove_relation_async(from_id, to_id, rel_type))
@@ -598,8 +593,8 @@ class VectorStoreBase:
         retry=retry_if_exception_type(QDRANT_RETRY_EXCEPTION),
     )
     async def add_entries_batch_async(
-        self, texts: List[str], tags_list: Optional[List[List[str]]] = None
-    ) -> List[str]:
+        self, texts: list[str], tags_list: list[list[str]] | None = None
+    ) -> list[str]:
         """Add multiple entries in batch asynchronously"""
         if not texts:
             return []
@@ -638,14 +633,14 @@ class VectorStoreBase:
 
     # Synchronous wrapper
     def add_entries_batch(
-        self, texts: List[str], tags_list: Optional[List[List[str]]] = None
-    ) -> List[str]:
+        self, texts: list[str], tags_list: list[list[str]] | None = None
+    ) -> list[str]:
         """Synchronous wrapper for add_entries_batch_async"""
         return asyncio.run(self.add_entries_batch_async(texts, tags_list))
 
     async def traverse_async(
-        self, start_id: str, depth: int = 1, rel_types: Optional[List[str]] = None
-    ) -> List[Dict[str, Any]]:
+        self, start_id: str, depth: int = 1, rel_types: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         """Traverse the graph from a starting point asynchronously"""
         if depth <= 0:
             return []
@@ -696,12 +691,12 @@ class VectorStoreBase:
 
     # Synchronous wrapper
     def traverse(
-        self, start_id: str, depth: int = 1, rel_types: Optional[List[str]] = None
-    ) -> List[Dict[str, Any]]:
+        self, start_id: str, depth: int = 1, rel_types: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         """Synchronous wrapper for traverse_async"""
         return asyncio.run(self.traverse_async(start_id, depth, rel_types))
 
-    def add(self, text: str, tags: Optional[List[str]] = None) -> str:
+    def add(self, text: str, tags: list[str] | None = None) -> str:
         """Alias for add_entry"""
         return self.add_entry(text, tags)
 
@@ -748,9 +743,7 @@ class KnowledgeTree(VectorStoreBase):
         url: str = QDRANT_URL,
         collection_name: str = "knowledge_tree",
         recreate_on_dim_mismatch: bool = False,
-        embedding_provider: Optional[
-            Callable[[], Awaitable[Tuple[Embeddings, int]]]
-        ] = None,
+        embedding_provider: Callable[[], Awaitable[tuple[Embeddings, int]]] | None = None,
     ) -> "KnowledgeTree":
         """Factory method for async initialization"""
         instance = cls(url, collection_name, recreate_on_dim_mismatch)
@@ -763,8 +756,8 @@ class KnowledgeTree(VectorStoreBase):
     async def learn_from_experience_async(
         self,
         text: str,
-        related_knowledge_id: Optional[str] = None,
-        tags: Optional[List[str]] = None,
+        related_knowledge_id: str | None = None,
+        tags: list[str] | None = None,
     ) -> str:
         """Learn from experience asynchronously"""
         exp_id = await self.add_entry_async(text, tags)
@@ -785,8 +778,8 @@ class KnowledgeTree(VectorStoreBase):
     def learn_from_experience(
         self,
         text: str,
-        related_knowledge_id: Optional[str] = None,
-        tags: Optional[List[str]] = None,
+        related_knowledge_id: str | None = None,
+        tags: list[str] | None = None,
     ) -> str:
         """Synchronous wrapper for learn_from_experience_async"""
         return asyncio.run(
@@ -836,9 +829,7 @@ class ExperienceTree(KnowledgeTree):
         url: str = QDRANT_URL,
         collection_name: str = "experience_tree",
         recreate_on_dim_mismatch: bool = False,
-        embedding_provider: Optional[
-            Callable[[], Awaitable[Tuple[Embeddings, int]]]
-        ] = None,
+        embedding_provider: Callable[[], Awaitable[tuple[Embeddings, int]]] | None = None,
     ) -> "ExperienceTree":
         """Factory method for async initialization"""
         instance = cls(url, collection_name, recreate_on_dim_mismatch)

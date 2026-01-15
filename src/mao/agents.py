@@ -6,29 +6,30 @@ Includes best-practice memory, checkpointing, and state management for productio
 import asyncio
 import logging
 import os
-from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union, cast
+from collections.abc import Callable
+from typing import Any, TypeVar, Union, cast
 
 from dotenv import load_dotenv
 
-# LLM Clients
-from langchain_openai import ChatOpenAI
-from langchain_anthropic import ChatAnthropic
-from langchain_ollama import OllamaLLM
-
 # LangChain Core
-from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_anthropic import ChatAnthropic
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.messages import SystemMessage, AIMessage, BaseMessage, trim_messages
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, trim_messages
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 
-# LangGraph
-from langgraph.graph import StateGraph, MessagesState, START, END
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph_supervisor import create_supervisor
-from langgraph.prebuilt import ToolNode, create_react_agent
+# LLM Clients
+from langchain_ollama import OllamaLLM
+from langchain_openai import ChatOpenAI
 
-# Tenacity für Retry-Logik
+# LangGraph
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, START, MessagesState, StateGraph
+from langgraph.prebuilt import ToolNode, create_react_agent
+from langgraph_supervisor import create_supervisor
+
+# Tenacity for retry logic
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -36,16 +37,16 @@ from tenacity import (
     wait_exponential,
 )
 
-# Lokale Module
-from mao.storage import ExperienceTree, KnowledgeTree
+# Local modules
 from mao.mcp import MCPClient
+from mao.storage import ExperienceTree, KnowledgeTree
 
 load_dotenv()
 
 T = TypeVar("T")
 
 
-def get_default_callbacks() -> List[BaseCallbackHandler]:
+def get_default_callbacks() -> list[BaseCallbackHandler]:
     """Returns default callbacks, either LangSmith tracer if configured or simple logging callbacks."""
     tracer = None
     try:
@@ -86,7 +87,7 @@ def _create_llm_client(
     provider: str,
     model_name: str,
     temperature: float = 0.0,
-    callbacks: Optional[List[BaseCallbackHandler]] = None,
+    callbacks: list[BaseCallbackHandler] | None = None,
     stream: bool = False,
     **kwargs: Any,
 ) -> BaseChatModel:
@@ -140,8 +141,8 @@ def _create_llm_client(
 
 
 async def load_mcp_tools(
-    mcp_client: Union[MCPClient, List[Dict[str, Any]], None],
-) -> List[Dict[str, Any]]:
+    mcp_client: MCPClient | list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
     """
     Generic helper to load tools from an MCPClient.
     Used by both Agent and Supervisor classes.
@@ -215,9 +216,9 @@ def _determine_tokenizer_for_trim(llm: BaseChatModel) -> Union[BaseChatModel, st
 async def _process_llm_response(
     response: Any,
     stream: bool,
-    token_callback: Optional[Callable[[str], None]] = None,
+    token_callback: Callable[[str], None] | None = None,
     streamed_content: str = "",
-) -> Tuple[BaseMessage, str]:
+) -> tuple[BaseMessage, str]:
     """Helper to process and standardize LLM responses into the proper format."""
     content_str: str
 
@@ -275,21 +276,21 @@ class Agent:
         self,
         llm_instance: BaseChatModel,
         agent_name: str,
-        tools: Optional[Union[MCPClient, List[Dict[str, Any]]]] = None,
-        system_prompt: Optional[str] = None,
-        knowledge_tree: Optional[KnowledgeTree] = None,
-        experience_tree: Optional[ExperienceTree] = None,
-        memory_saver: Optional[MemorySaver] = None,
-        callbacks: Optional[List[BaseCallbackHandler]] = None,
+        tools: MCPClient | list[dict[str, Any]] | None = None,
+        system_prompt: str | None = None,
+        knowledge_tree: KnowledgeTree | None = None,
+        experience_tree: ExperienceTree | None = None,
+        memory_saver: MemorySaver | None = None,
+        callbacks: list[BaseCallbackHandler] | None = None,
         stream: bool = False,
-        token_callback: Optional[Callable[[str], None]] = None,
+        token_callback: Callable[[str], None] | None = None,
         max_tokens_trimmed: int = 3000,
         use_react_agent: bool = False,
     ):
         self.llm = llm_instance
         self.name = agent_name
         self.configured_tools = tools
-        self.loaded_tools: List[Dict[str, Any]] = []
+        self.loaded_tools: list[dict[str, Any]] = []
         self.system_prompt = system_prompt or "You are a helpful assistant."
         self.knowledge_tree = knowledge_tree
         self.experience_tree = experience_tree
@@ -301,7 +302,7 @@ class Agent:
         self.agent_runnable = None
         self.use_react_agent = use_react_agent
 
-    async def _load_mcp_tools(self) -> List[Dict[str, Any]]:
+    async def _load_mcp_tools(self) -> list[dict[str, Any]]:
         """Loads tools if self.configured_tools is an MCPClient instance."""
         return await load_mcp_tools(self.configured_tools)
 
@@ -343,7 +344,7 @@ class Agent:
         return "".join(context_parts).strip()
 
     async def _learn_experience(
-        self, user_input: str, model_output: Any, tags: Optional[List[str]] = None
+        self, user_input: str, model_output: Any, tags: list[str] | None = None
     ) -> None:
         """Stores interactions as experience for future reference."""
         if not self.experience_tree:
@@ -392,8 +393,8 @@ class Agent:
         retry=retry_if_exception_type(Exception),
     )
     async def _call_model_node(
-        self, state: MessagesState, config: Optional[RunnableConfig] = None
-    ) -> Dict[str, List[BaseMessage]]:
+        self, state: MessagesState, config: RunnableConfig | None = None
+    ) -> dict[str, list[BaseMessage]]:
         """Core method to process messages, call the LLM, and update state."""
         user_input_raw = state["messages"][-1].content if state["messages"] else ""
         user_input = _ensure_str(user_input_raw)
@@ -413,7 +414,7 @@ class Agent:
             include_system=True,
             start_on="human",
         )
-        messages_for_llm: List[BaseMessage] = [
+        messages_for_llm: list[BaseMessage] = [
             SystemMessage(content=system_content)
         ] + trimmed_messages_list
 
@@ -525,13 +526,13 @@ class Agent:
 class Supervisor:
     def __init__(
         self,
-        agents: List[Any],
+        agents: list[Any],
         supervisor_provider: str,
         supervisor_model_name: str,
         supervisor_system_prompt: str,
-        supervisor_tools: Optional[Union[MCPClient, List[Dict[str, Any]]]] = None,
-        callbacks: Optional[List[BaseCallbackHandler]] = None,
-        llm_specific_kwargs: Optional[Dict[str, Any]] = None,
+        supervisor_tools: MCPClient | list[dict[str, Any]] | None = None,
+        callbacks: list[BaseCallbackHandler] | None = None,
+        llm_specific_kwargs: dict[str, Any] | None = None,
         add_handoff_back_messages: bool = True,
         parallel_tool_calls: bool = True,
         **supervisor_kwargs: Any,
@@ -539,7 +540,7 @@ class Supervisor:
         self.agents = agents
         self.supervisor_provider = supervisor_provider
         self.supervisor_model_name = supervisor_model_name
-        self.llm: Optional[BaseChatModel] = None
+        self.llm: BaseChatModel | None = None
         self.prompt = supervisor_system_prompt
         self.supervisor_tools = supervisor_tools
         # Create new dictionary with clean parameters
@@ -554,7 +555,7 @@ class Supervisor:
         self.callbacks = callbacks or DEFAULT_CALLBACKS
         self.llm_specific_kwargs = llm_specific_kwargs or {}
 
-    async def _load_supervisor_mcp_tools(self) -> List[Dict[str, Any]]:
+    async def _load_supervisor_mcp_tools(self) -> list[dict[str, Any]]:
         """Loads tools for the supervisor from MCPClient."""
         return await load_mcp_tools(self.supervisor_tools)
 
@@ -574,7 +575,7 @@ class Supervisor:
                 llm = llm.bind_tools(tools)  # type: ignore
 
             # Explizite Typkonvertierung für mypy
-            agents_list = cast(List[Any], self.agents)
+            agents_list = cast(list[Any], self.agents)
             prompt_str = cast(str, self.prompt)
 
             workflow = create_supervisor(
@@ -611,7 +612,7 @@ class Supervisor:
         return self.app
 
     async def invoke(
-        self, messages: List[dict], thread_id: Optional[str] = None
+        self, messages: list[dict], thread_id: str | None = None
     ) -> Any:
         """Invokes the supervisor asynchronously with a list of messages."""
         if self.app is None:
@@ -627,17 +628,17 @@ class Supervisor:
 async def create_agent(
     provider: str,
     model_name: str,
-    agent_name: Optional[str] = None,
+    agent_name: str | None = None,
     temperature: float = 0.0,
-    tools: Optional[Union[MCPClient, List[Dict[str, Any]]]] = None,
-    system_prompt: Optional[str] = None,
-    knowledge_tree: Optional[KnowledgeTree] = None,
-    experience_tree: Optional[ExperienceTree] = None,
-    callbacks: Optional[List[BaseCallbackHandler]] = None,
+    tools: MCPClient | list[dict[str, Any]] | None = None,
+    system_prompt: str | None = None,
+    knowledge_tree: KnowledgeTree | None = None,
+    experience_tree: ExperienceTree | None = None,
+    callbacks: list[BaseCallbackHandler] | None = None,
     stream: bool = False,
-    token_callback: Optional[Callable[[str], None]] = None,
+    token_callback: Callable[[str], None] | None = None,
     max_tokens_trimmed: int = 3000,
-    llm_specific_kwargs: Optional[Dict[str, Any]] = None,
+    llm_specific_kwargs: dict[str, Any] | None = None,
     use_react_agent: bool = True,
 ) -> Any:
     """Factory function to create and initialize an agent with the specified configuration."""

@@ -3,39 +3,41 @@ MCPClient and MCP integration for agent framework.
 Production-ready, typed, and DRY. All docstrings in English.
 """
 
-from typing import Optional, Dict, Any, List, TypedDict, Callable, TypeVar, Awaitable
-import os
-import json
 import asyncio
-import httpx
+import json
+import logging
+import os
+import pathlib
+from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager
+from typing import Any, TypedDict, TypeVar
 from urllib.parse import urljoin
+
+import httpx
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
-import logging
-import pathlib
-from contextlib import asynccontextmanager
 
 
 class ToolConfig(TypedDict):
     """Configuration for a tool"""
 
     enabled: bool
-    server: Optional[str]
+    server: str | None
 
 
 class ServerConfig(TypedDict):
     """Configuration for an MCP server"""
 
     transport: str
-    command: Optional[str]
-    args: Optional[List[str]]
-    url: Optional[str]
-    headers: Optional[Dict[str, str]]
-    timeout: Optional[int]
-    sse_read_timeout: Optional[int]
-    env: Optional[Dict[str, str]]
-    cwd: Optional[str]
-    errlog: Optional[str]
+    command: str | None
+    args: list[str] | None
+    url: str | None
+    headers: dict[str, str] | None
+    timeout: int | None
+    sse_read_timeout: int | None
+    env: dict[str, str] | None
+    cwd: str | None
+    errlog: str | None
 
 
 class MCPClient(MultiServerMCPClient):
@@ -53,9 +55,9 @@ class MCPClient(MultiServerMCPClient):
 
     def __init__(
         self,
-        config: Optional[dict] = None,
-        initial_tool_states: Optional[Dict[str, bool]] = None,
-        config_path: Optional[str] = None,
+        config: dict[str, Any] | None = None,
+        initial_tool_states: dict[str, bool] | None = None,
+        config_path: str | None = None,
     ):
         self.project_root = pathlib.Path(__file__).resolve().parent.parent.parent
 
@@ -106,7 +108,7 @@ class MCPClient(MultiServerMCPClient):
             logging.error(f"Failed to decode JSON from {config_path}: {e}")
             raise ValueError(f"Invalid JSON format in {config_path}: {e}") from e
 
-    def _build_connections(self) -> Dict[str, Any]:
+    def _build_connections(self) -> dict[str, Any]:
         """
         Constructs the connection dictionary for MultiServerMCPClient
         based on the 'mcpServers' section of the loaded configuration.
@@ -169,11 +171,11 @@ class MCPClient(MultiServerMCPClient):
             connections[name] = conn_details
         return connections
 
-    def list_servers(self) -> List[str]:
+    def list_servers(self) -> list[str]:
         """Return a list of all configured server names."""
         return list(self.config.get("mcpServers", {}).keys())
 
-    def list_active_servers(self) -> List[str]:
+    def list_active_servers(self) -> list[str]:
         """Return a list of currently active server names."""
         return list(self._active_servers)
 
@@ -209,14 +211,14 @@ class MCPClient(MultiServerMCPClient):
         self.reload()
         # If there are any async operations needed in the future, they would go here
 
-    async def health_check(self) -> Dict[str, bool]:
+    async def health_check(self) -> dict[str, bool]:
         """
         Check health of all active servers.
 
         Returns:
             Dict mapping server names to health status
         """
-        results: Dict[str, bool] = {}
+        results: dict[str, bool] = {}
         active_servers = self.list_active_servers()
 
         for server_name in active_servers:
@@ -234,7 +236,7 @@ class MCPClient(MultiServerMCPClient):
 
         return results
 
-    def load_tools(self, server_name: str) -> List[Dict[str, Any]]:
+    def load_tools(self, server_name: str) -> list[dict[str, Any]]:
         """
         Load tools from a specific server.
 
@@ -272,8 +274,8 @@ async def _fetch_config_from_api(
     api_base_url: str,
     enabled_only: bool,
     timeout: float,
-    fetch_func: Callable[[str, float], Awaitable[Dict[str, Any]]],
-) -> Dict[str, Any]:
+    fetch_func: Callable[[str, float], Awaitable[dict[str, Any]]],
+) -> dict[str, Any]:
     """
     Helper function to fetch configuration from API.
 
@@ -330,7 +332,7 @@ def create_mcp_client_from_api(
     """
     logging.info(f"Creating MCPClient from API at {api_base_url}")
 
-    async def fetch_sync(url: str, timeout_val: float) -> Dict[str, Any]:
+    async def fetch_sync(url: str, timeout_val: float) -> dict[str, Any]:
         with httpx.Client(timeout=timeout_val) as client:
             response = client.get(url)
             response.raise_for_status()
@@ -369,7 +371,7 @@ async def create_mcp_client_from_api_async(
     """
     logging.info(f"Asynchronously creating MCPClient from API at {api_base_url}")
 
-    async def fetch_async(url: str, timeout_val: float) -> Dict[str, Any]:
+    async def fetch_async(url: str, timeout_val: float) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=timeout_val) as client:
             response = await client.get(url)
             response.raise_for_status()
