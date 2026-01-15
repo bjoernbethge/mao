@@ -1,149 +1,43 @@
-name: Test and Lint
+name: Lint and Unit Tests
+
+# This workflow runs code quality checks (linting) and fast unit tests.
+# For full integration tests with Docker services (Qdrant, Ollama), see:
+# - integration-tests.yml: Runs on main branch or when PR is labeled 'test-integration'
+# - unit-tests.yml: Fast tests without external services, runs on all PRs
 
 on:
   push:
     branches: [ main ]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'LICENSE'
-      - '.gitignore'
-      - '**.txt'
   pull_request:
     branches: [ main ]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'LICENSE'
-      - '.gitignore'
-      - '**.txt'
-  workflow_dispatch:  # Enable manual triggering
+  workflow_dispatch:
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
-    timeout-minutes: 20  # Prevent workflows from running indefinitely
-    
-    env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      QDRANT_URL: http://localhost:6333
-      EMBEDDING_MODEL: text-embedding-3-small
-      MCP_DB_PATH: ./data/mcp_config.duckdb
-      MCP_CONFIG_PATH: ./mcp.json
-      OLLAMA_HOST: http://localhost:11434
-      PYTHONUNBUFFERED: 1
-      # Aktiviere Debug-Modus für bessere Fehleranalyse
-      DEBUG: "true"
-    
+    timeout-minutes: 10
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      
-      - name: Set up Docker
-        uses: docker/setup-buildx-action@v3
-      
-      - name: Start Qdrant container
-        run: |
-          docker pull qdrant/qdrant:latest
-          docker run -d --name qdrant -p 6333:6333 -p 6334:6334 qdrant/qdrant:latest
-      
-      - name: Start Ollama container
-        run: |
-          docker pull ollama/ollama:latest
-          docker run -d --name ollama -p 11434:11434 ollama/ollama:latest
 
-      - name: Pull dock mcp toolkit container
-        run: |
-          docker pull alpine/socat:latest
-      
       - name: Install uv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
-      
-      - name: Create data directory
-        run: mkdir -p data
-          
+
       - name: Install dependencies
-        run: |
-          uv sync
-          # Installiere auch die Entwicklungsabhängigkeiten explizit
-          uv pip install pytest pytest-asyncio pytest-cov pytest-timeout pytest-xdist
-          # Zeige installierte Pakete für Debugging
-          uv pip list
-      
-      - name: Setup MCP configuration for tests
-        run: |
-          # Erstelle eine realistische mcp.json Datei für Tests mit echten Server- und Tool-Definitionen
-          echo '{
-            "mcpServers": {
-              "dockerailabs": {
-                  "command": "docker",
-                  "args": [
-                    "run",
-                    "-i",
-                    "--rm",
-                    "alpine/socat",
-                    "STDIO",
-                    "TCP:host.docker.internal:8811"
-                  ]
-                },
-            }
-          }' > ./mcp.json
-        
+        run: uv sync
+
       - name: Lint with ruff
         run: uv run ruff check .
-        
+
       - name: Check formatting with black
         run: uv run black --check .
-        
-      - name: Type check with mypy
-        run: uv run mypy .
-      
-      - name: Wait for services to be ready
-        run: |
-          # Warte auf Qdrant
-          echo "Waiting for Qdrant..."
-          for i in {1..60}; do
-            if curl -s http://localhost:6333/health > /dev/null; then
-              echo "Qdrant is ready!"
-              break
-            fi
-            if [ $i -eq 60 ]; then
-              echo "Qdrant failed to start in time."
-              docker logs qdrant
-              exit 1
-            fi
-            sleep 1
-          done
-          
-          # Warte auf Ollama
-          echo "Waiting for Ollama..."
-          for i in {1..60}; do
-            if curl -s http://localhost:11434/api/version > /dev/null; then
-              echo "Ollama is ready!"
-              break
-            fi
-            if [ $i -eq 60 ]; then
-              echo "Ollama failed to start in time."
-              docker logs ollama
-              exit 1
-            fi
-            sleep 2
-          done
 
-      # Führe Tests mit paralleler Ausführung aus
-      - name: Run pytest
-        run: |
-          # Setze ein höheres Timeout und verwende parallele Ausführung
-          uv run pytest --cov=src --timeout=120 -v tests/
-        
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }} 
+      - name: Type check with mypy
+        run: uv run mypy . 

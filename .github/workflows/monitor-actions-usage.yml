@@ -1,0 +1,51 @@
+name: Monitor Actions Usage
+on:
+  schedule:
+    - cron: '0 0 1 * *'  # Monthly on 1st
+  workflow_dispatch:
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Get Actions Usage
+        run: |
+          echo "## GitHub Actions Usage Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Repository: ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "Report Date: $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Get last 100 workflow runs
+          gh api "/repos/${{ github.repository }}/actions/runs?per_page=100" \
+            --jq '.workflow_runs[] | select(.updated_at >= (now - 30*86400 | strftime("%Y-%m-%dT%H:%M:%SZ"))) | {name: .name, status: .conclusion, duration_ms: .run_duration_ms, created: .created_at}' \
+            > /tmp/runs.json || true
+
+          echo "### Last 30 Days Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Count total runs
+          TOTAL_RUNS=$(cat /tmp/runs.json | wc -l)
+          echo "- Total workflow runs: $TOTAL_RUNS" >> $GITHUB_STEP_SUMMARY
+
+          # Calculate total duration (approximate minutes)
+          TOTAL_MS=$(cat /tmp/runs.json | grep -o '"duration_ms":[0-9]*' | grep -o '[0-9]*' | awk '{sum+=$1} END {print sum}')
+          TOTAL_MIN=$((TOTAL_MS / 60000))
+          echo "- Total compute time: ~$TOTAL_MIN minutes" >> $GITHUB_STEP_SUMMARY
+
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create artifact
+        run: |
+          mkdir -p reports
+          date > reports/report-$(date +%Y-%m).txt
+          echo "Usage report generated" >> reports/report-$(date +%Y-%m).txt
+
+      - name: Upload Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: actions-usage-report
+          path: reports/
+          retention-days: 90
