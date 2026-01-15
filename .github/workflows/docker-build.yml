@@ -68,7 +68,7 @@ jobs:
           docker buildx build \
             --platform ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) && 'linux/amd64,linux/arm64' || 'linux/amd64' }} \
             ${PUSH_FLAG} \
-            --tag $(echo $TAGS | tr ',' ' --tag ') \
+            --tag $(echo $TAGS | sed 's/,/ --tag /g') \
             --build-arg BUILDKIT_INLINE_CACHE=1 \
             --build-arg OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} \
             --build-arg ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }} \
