@@ -2,7 +2,7 @@ name: Publish Package
 
 on:
   release:
-    types: [created]
+    types: [published]
   workflow_dispatch:
     inputs:
       version:
@@ -13,7 +13,7 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     permissions:
       contents: read
       id-token: write  # For trusted publishing to PyPI
@@ -41,6 +41,9 @@ jobs:
 
       - name: Build package
         run: uv run python -m build
+
+      - name: Check package
+        run: twine check dist/*
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
