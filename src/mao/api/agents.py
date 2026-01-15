@@ -4,21 +4,20 @@ Agent-related API endpoints.
 
 import logging
 import uuid
-from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Depends, Query, Path, status
 
-from ..agents import create_agent
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+
+from .api import active_agents, get_config_db
 from .db import ConfigDB
-
+from .helpers import create_and_start_agent
 from .models import (
     AgentCreate,
-    AgentUpdate,
-    AgentResponse,
     AgentMessage,
+    AgentResponse,
     AgentResponseMessage,
+    AgentUpdate,
     ToolResponse,
 )
-from .api import get_config_db, active_agents
 
 # Create router
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -44,10 +43,10 @@ async def create_new_agent(agent: AgentCreate, db: ConfigDB = Depends(get_config
     return await db.get_agent(agent_id)
 
 
-@router.get("", response_model=List[AgentResponse])
+@router.get("", response_model=list[AgentResponse])
 async def list_agents(
-    limit: Optional[int] = Query(50, description="Maximum number of agents to return"),
-    offset: Optional[int] = Query(0, description="Number of agents to skip"),
+    limit: int | None = Query(50, description="Maximum number of agents to return"),
+    offset: int | None = Query(0, description="Number of agents to skip"),
     db: ConfigDB = Depends(get_config_db),
 ):
     """Lists all configured agents"""
@@ -136,42 +135,7 @@ async def start_agent(
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
 
     try:
-        # Get tools for the agent
-        tools = None
-        agent_tools = await db.get_agent_tools(agent_id, enabled_only=True)
-        if agent_tools:
-            # Import necessary modules for creating tools
-            try:
-                # Convert DB tool objects to LangChain tools
-                tool_list = []
-                for tool in agent_tools:
-                    # Create a simple tool description for use in agents
-                    tool_desc = {
-                        "name": tool["name"],
-                        "description": tool.get("description", ""),
-                        "parameters": tool.get("parameters", {}),
-                    }
-                    tool_list.append(tool_desc)
-                tools = tool_list
-            except Exception as e:
-                logging.warning(f"Failed to load tools for agent {agent_id}: {e}")
-                tools = None
-
-        # Create and start the agent
-        agent_app = await create_agent(
-            provider=agent_config["provider"],
-            model_name=agent_config["model_name"],
-            agent_name=agent_config["name"],
-            system_prompt=agent_config.get("system_prompt"),
-            use_react_agent=agent_config.get("use_react_agent", True),
-            max_tokens_trimmed=agent_config.get("max_tokens_trimmed", 3000),
-            llm_specific_kwargs=agent_config.get("llm_specific_kwargs"),
-            tools=tools,
-        )
-
-        # Add agent to active agents
-        active_agents[agent_id] = {"agent": agent_app, "config": agent_config}
-
+        await create_and_start_agent(db, agent_id, agent_config, active_agents)
         return {"status": "started", "agent_id": agent_id}
     except Exception as e:
         logging.exception(f"Failed to start agent {agent_id}: {e}")
@@ -247,7 +211,7 @@ async def chat_with_agent(
 
 
 # Tool management endpoints
-@router.get("/{agent_id}/tools", response_model=List[ToolResponse])
+@router.get("/{agent_id}/tools", response_model=list[ToolResponse])
 async def list_agent_tools(
     agent_id: str = Path(..., description="Agent ID"),
     enabled_only: bool = Query(False, description="Only return enabled tools"),

@@ -3,13 +3,15 @@ Configuration database manager using DuckDB.
 Provides a lightweight, file-based database for agent and MCP configuration.
 """
 
-import duckdb
-import os
+import asyncio
 import json
 import logging
-import asyncio
-from typing import Dict, List, Any, Optional, Union, Tuple
+import os
 from contextlib import asynccontextmanager, contextmanager
+from typing import Any
+
+
+import duckdb
 
 
 class ConfigDB:
@@ -24,7 +26,8 @@ class ConfigDB:
     - Default system prompts
     """
 
-    _instances: Dict[str, "ConfigDB"] = {}
+    _instances: dict[str, "ConfigDB"] = {}
+    _lock = asyncio.Lock()
     _lock = asyncio.Lock()
 
     @classmethod
@@ -229,8 +232,8 @@ class ConfigDB:
             )
 
     def _process_result(
-        self, result: Union[Tuple, Any], table_name: str
-    ) -> Dict[str, Any]:
+        self, result: tuple | Any, table_name: str
+    ) -> dict[str, Any]:
         """Process a database result into a dictionary"""
         if result is None:
             return {}
@@ -354,6 +357,44 @@ class ConfigDB:
 
         return data
 
+    def _build_update_query(
+        self,
+        table: str,
+        id_column: str,
+        id_value: str,
+        json_fields: list[str],
+        **kwargs: Any,
+    ) -> tuple[str, list[Any]]:
+        """
+        Build an UPDATE query with SET clauses and parameters.
+
+        Args:
+            table: Table name
+            id_column: Name of the ID column for the WHERE clause
+            id_value: Value for the ID column
+            json_fields: List of field names that should be JSON serialized
+            **kwargs: Field names and values to update
+
+        Returns:
+            Tuple of (query string, parameters list)
+        """
+        set_clauses = []
+        params: list[Any] = []
+
+        for key, value in kwargs.items():
+            if key in json_fields:
+                set_clauses.append(f"{key} = ?")
+                params.append(json.dumps(value) if value is not None else None)
+            else:
+                set_clauses.append(f"{key} = ?")
+                params.append(value)
+
+        set_clauses.append("updated_at = CURRENT_TIMESTAMP")
+        params.append(id_value)
+
+        query = f"UPDATE {table} SET {', '.join(set_clauses)} WHERE {id_column} = ?"
+        return query, params
+
     # Agent Methods - Asynchronous Implementation
     async def create_agent(
         self,
@@ -361,10 +402,10 @@ class ConfigDB:
         name: str,
         provider: str,
         model_name: str,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         use_react_agent: bool = True,
         max_tokens_trimmed: int = 3000,
-        llm_specific_kwargs: Optional[Dict[str, Any]] = None,
+        llm_specific_kwargs: dict[str, Any] | None = None,
     ) -> str:
         """
         Create a new agent configuration asynchronously.
@@ -406,7 +447,7 @@ class ConfigDB:
 
             return agent_id
 
-    async def get_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
+    async def get_agent(self, agent_id: str) -> dict[str, Any] | None:
         """Gets an agent by ID asynchronously"""
         async with self.async_connection() as conn:
             result = conn.execute(
@@ -422,8 +463,8 @@ class ConfigDB:
             return agent
 
     async def list_agents(
-        self, limit: Optional[int] = None, offset: Optional[int] = 0
-    ) -> List[Dict[str, Any]]:
+        self, limit: int | None = None, offset: int | None = 0
+    ) -> list[dict[str, Any]]:
         """Lists all agents asynchronously, with optional pagination"""
         async with self.async_connection() as conn:
             query = "SELECT * FROM agents"
@@ -444,35 +485,16 @@ class ConfigDB:
             # No need to deserialize JSON fields again as _process_result already does this
             return agents
 
-    async def update_agent(self, agent_id: str, **kwargs) -> bool:
+    async def update_agent(self, agent_id: str, **kwargs: Any) -> bool:
         """Updates an agent asynchronously"""
         if not kwargs:
             return False
 
         async with self.async_connection() as conn:
-            # Build the SET clause and parameters
-            set_clauses = []
-            params: list[Any] = []
-
-            for key, value in kwargs.items():
-                if key == "llm_specific_kwargs":
-                    set_clauses.append(f"{key} = ?")
-                    params.append(json.dumps(value) if value is not None else None)
-                else:
-                    set_clauses.append(f"{key} = ?")
-                    params.append(value)
-
-            # Add updated_at timestamp
-            set_clauses.append("updated_at = CURRENT_TIMESTAMP")
-
-            # Add agent_id to parameters
-            params.append(agent_id)
-
-            # Execute the update
-            conn.execute(
-                f"UPDATE agents SET {', '.join(set_clauses)} WHERE id = ?", params
+            query, params = self._build_update_query(
+                "agents", "id", agent_id, ["llm_specific_kwargs"], **kwargs
             )
-
+            conn.execute(query, params)
             return True
 
     async def delete_agent(self, agent_id: str) -> bool:
@@ -507,7 +529,7 @@ class ConfigDB:
 
     async def get_agent_tools(
         self, agent_id: str, enabled_only: bool = False
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Gets all tools assigned to an agent asynchronously"""
         async with self.async_connection() as conn:
             query = """
@@ -528,7 +550,7 @@ class ConfigDB:
             return [self._process_result(r, "tools") for r in results]
 
     # Team Methods - Asynchronous Implementation
-    async def get_team(self, team_id: str) -> Optional[Dict[str, Any]]:
+    async def get_team(self, team_id: str) -> dict[str, Any] | None:
         """Gets a team by its ID asynchronously"""
         async with self.async_connection() as conn:
             result = conn.execute(
@@ -537,8 +559,8 @@ class ConfigDB:
             return self._process_result(result, "teams") if result else None
 
     async def list_teams(
-        self, supervisor_id: Optional[str] = None, active_only: bool = False
-    ) -> List[Dict[str, Any]]:
+        self, supervisor_id: str | None = None, active_only: bool = False
+    ) -> list[dict[str, Any]]:
         """Lists all teams asynchronously, optionally filtered"""
         async with self.async_connection() as conn:
             query = "SELECT * FROM teams"
@@ -564,10 +586,10 @@ class ConfigDB:
         self,
         team_id: str,
         name: str,
-        description: Optional[str] = None,
+        description: str | None = None,
         workflow_type: str = "sequential",
-        supervisor_id: Optional[str] = None,
-        config: Optional[Dict[str, Any]] = None,
+        supervisor_id: str | None = None,
+        config: dict[str, Any] | None = None,
         is_active: bool = True,
     ) -> str:
         """Creates a team asynchronously"""
@@ -590,35 +612,16 @@ class ConfigDB:
             )
             return team_id
 
-    async def update_team(self, team_id: str, **kwargs) -> bool:
+    async def update_team(self, team_id: str, **kwargs: Any) -> bool:
         """Updates a team asynchronously"""
         if not kwargs:
             return False
 
         async with self.async_connection() as conn:
-            # Build the SET clause and parameters
-            set_clauses = []
-            params: list[Any] = []
-
-            for key, value in kwargs.items():
-                if key == "config":
-                    set_clauses.append(f"{key} = ?")
-                    params.append(json.dumps(value) if value is not None else None)
-                else:
-                    set_clauses.append(f"{key} = ?")
-                    params.append(value)
-
-            # Add updated_at timestamp
-            set_clauses.append("updated_at = CURRENT_TIMESTAMP")
-
-            # Add team_id to parameters
-            params.append(team_id)
-
-            # Execute the update
-            conn.execute(
-                f"UPDATE teams SET {', '.join(set_clauses)} WHERE id = ?", params
+            query, params = self._build_update_query(
+                "teams", "id", team_id, ["config"], **kwargs
             )
-
+            conn.execute(query, params)
             return True
 
     async def delete_team(self, team_id: str) -> bool:
@@ -635,9 +638,9 @@ class ConfigDB:
         team_id: str,
         agent_id: str,
         role: str,
-        order_index: Optional[int] = None,
+        order_index: int | None = None,
         is_active: bool = True,
-        params: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
     ) -> bool:
         """Adds an agent to a team asynchronously"""
         async with self.async_connection() as conn:
@@ -693,7 +696,7 @@ class ConfigDB:
 
     async def get_team_members(
         self, team_id: str, active_only: bool = False
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Gets all members of a team asynchronously"""
         async with self.async_connection() as conn:
             query = """
@@ -713,7 +716,7 @@ class ConfigDB:
             results = conn.execute(query, params).fetchall()
             return [self._process_result(r, "team_members") for r in results]
 
-    async def update_team_member(self, team_id: str, agent_id: str, **kwargs) -> bool:
+    async def update_team_member(self, team_id: str, agent_id: str, **kwargs: Any) -> bool:
         """Updates a team member asynchronously"""
         if not kwargs:
             return False
@@ -759,11 +762,11 @@ class ConfigDB:
         self,
         supervisor_id: str,
         agent_id: str,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         strategy: str = "team_manager",
         add_handoff_back_messages: bool = True,
         parallel_tool_calls: bool = True,
-        config: Optional[Dict[str, Any]] = None,
+        config: dict[str, Any] | None = None,
     ) -> str:
         """Creates a supervisor asynchronously"""
         async with self.async_connection() as conn:
@@ -786,7 +789,7 @@ class ConfigDB:
             )
             return supervisor_id
 
-    async def get_supervisor(self, supervisor_id: str) -> Optional[Dict[str, Any]]:
+    async def get_supervisor(self, supervisor_id: str) -> dict[str, Any] | None:
         """Gets a supervisor by its ID asynchronously"""
         async with self.async_connection() as conn:
             result = conn.execute(
@@ -801,8 +804,8 @@ class ConfigDB:
             return self._process_result(result, "supervisors") if result else None
 
     async def list_supervisors(
-        self, agent_id: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        self, agent_id: str | None = None
+    ) -> list[dict[str, Any]]:
         """Lists all supervisors asynchronously, optionally filtered by agent_id"""
         async with self.async_connection() as conn:
             query = """
@@ -822,35 +825,16 @@ class ConfigDB:
             results = conn.execute(query, params).fetchall()
             return [self._process_result(r, "supervisors") for r in results]
 
-    async def update_supervisor(self, supervisor_id: str, **kwargs) -> bool:
+    async def update_supervisor(self, supervisor_id: str, **kwargs: Any) -> bool:
         """Updates a supervisor asynchronously"""
         if not kwargs:
             return False
 
         async with self.async_connection() as conn:
-            # Build the SET clause and parameters
-            set_clauses = []
-            params: list[Any] = []
-
-            for key, value in kwargs.items():
-                if key == "config":
-                    set_clauses.append(f"{key} = ?")
-                    params.append(json.dumps(value) if value is not None else None)
-                else:
-                    set_clauses.append(f"{key} = ?")
-                    params.append(value)
-
-            # Add updated_at timestamp
-            set_clauses.append("updated_at = CURRENT_TIMESTAMP")
-
-            # Add supervisor_id to parameters
-            params.append(supervisor_id)
-
-            # Execute the update
-            conn.execute(
-                f"UPDATE supervisors SET {', '.join(set_clauses)} WHERE id = ?", params
+            query, params = self._build_update_query(
+                "supervisors", "id", supervisor_id, ["config"], **kwargs
             )
-
+            conn.execute(query, params)
             return True
 
     async def delete_supervisor(self, supervisor_id: str) -> bool:
@@ -873,12 +857,12 @@ class ConfigDB:
         name: str,
         transport: str,
         enabled: bool = True,
-        url: Optional[str] = None,
-        command: Optional[str] = None,
-        args: Optional[List[str]] = None,
-        headers: Optional[Dict[str, str]] = None,
-        env_vars: Optional[Dict[str, str]] = None,
-        timeout: Optional[int] = None,
+        url: str | None = None,
+        command: str | None = None,
+        args: list[str] | None = None,
+        headers: dict[str, str] | None = None,
+        env_vars: dict[str, str] | None = None,
+        timeout: int | None = None,
     ) -> str:
         """Creates a server asynchronously"""
         async with self.async_connection() as conn:
@@ -903,7 +887,7 @@ class ConfigDB:
             )
             return server_id
 
-    async def get_server(self, server_id: str) -> Optional[Dict[str, Any]]:
+    async def get_server(self, server_id: str) -> dict[str, Any] | None:
         """Gets a server by its ID asynchronously"""
         async with self.async_connection() as conn:
             result = conn.execute(
@@ -911,7 +895,7 @@ class ConfigDB:
             ).fetchone()
             return self._process_result(result, "mcp_servers") if result else None
 
-    async def list_servers(self, enabled_only: bool = False) -> List[Dict[str, Any]]:
+    async def list_servers(self, enabled_only: bool = False) -> list[dict[str, Any]]:
         """Lists all servers asynchronously, optionally filtered by enabled status"""
         async with self.async_connection() as conn:
             query = "SELECT * FROM mcp_servers"
@@ -925,35 +909,16 @@ class ConfigDB:
             results = conn.execute(query, params).fetchall()
             return [self._process_result(r, "mcp_servers") for r in results]
 
-    async def update_server(self, server_id: str, **kwargs) -> bool:
+    async def update_server(self, server_id: str, **kwargs: Any) -> bool:
         """Updates a server asynchronously"""
         if not kwargs:
             return False
 
         async with self.async_connection() as conn:
-            # Build the SET clause and parameters
-            set_clauses = []
-            params = []
-
-            for key, value in kwargs.items():
-                if key in ["args", "headers", "env_vars"]:
-                    set_clauses.append(f"{key} = ?")
-                    params.append(json.dumps(value) if value is not None else None)
-                else:
-                    set_clauses.append(f"{key} = ?")
-                    params.append(value)
-
-            # Add updated_at timestamp
-            set_clauses.append("updated_at = CURRENT_TIMESTAMP")
-
-            # Add server_id to parameters
-            params.append(server_id)
-
-            # Execute the update
-            conn.execute(
-                f"UPDATE mcp_servers SET {', '.join(set_clauses)} WHERE id = ?", params
+            query, params = self._build_update_query(
+                "mcp_servers", "id", server_id, ["args", "headers", "env_vars"], **kwargs
             )
-
+            conn.execute(query, params)
             return True
 
     async def delete_server(self, server_id: str) -> bool:
@@ -975,9 +940,9 @@ class ConfigDB:
         tool_id: str,
         name: str,
         enabled: bool = True,
-        server_id: Optional[str] = None,
-        description: Optional[str] = None,
-        parameters: Optional[Dict[str, Any]] = None,
+        server_id: str | None = None,
+        description: str | None = None,
+        parameters: dict[str, Any] | None = None,
     ) -> str:
         """Creates a tool asynchronously"""
         async with self.async_connection() as conn:
@@ -998,7 +963,7 @@ class ConfigDB:
             )
             return tool_id
 
-    async def get_tool(self, tool_id: str) -> Optional[Dict[str, Any]]:
+    async def get_tool(self, tool_id: str) -> dict[str, Any] | None:
         """Gets a tool by its ID asynchronously"""
         async with self.async_connection() as conn:
             result = conn.execute(
@@ -1007,8 +972,8 @@ class ConfigDB:
             return self._process_result(result, "tools") if result else None
 
     async def list_tools(
-        self, server_id: Optional[str] = None, enabled_only: bool = False
-    ) -> List[Dict[str, Any]]:
+        self, server_id: str | None = None, enabled_only: bool = False
+    ) -> list[dict[str, Any]]:
         """Lists all tools asynchronously, optionally filtered"""
         async with self.async_connection() as conn:
             query = "SELECT * FROM tools"
@@ -1030,35 +995,16 @@ class ConfigDB:
             results = conn.execute(query, params).fetchall()
             return [self._process_result(r, "tools") for r in results]
 
-    async def update_tool(self, tool_id: str, **kwargs) -> bool:
+    async def update_tool(self, tool_id: str, **kwargs: Any) -> bool:
         """Updates a tool asynchronously"""
         if not kwargs:
             return False
 
         async with self.async_connection() as conn:
-            # Build the SET clause and parameters
-            set_clauses = []
-            params: list[Any] = []
-
-            for key, value in kwargs.items():
-                if key == "parameters":
-                    set_clauses.append(f"{key} = ?")
-                    params.append(json.dumps(value) if value is not None else None)
-                else:
-                    set_clauses.append(f"{key} = ?")
-                    params.append(value)
-
-            # Add updated_at timestamp
-            set_clauses.append("updated_at = CURRENT_TIMESTAMP")
-
-            # Add tool_id to parameters
-            params.append(tool_id)
-
-            # Execute the update
-            conn.execute(
-                f"UPDATE tools SET {', '.join(set_clauses)} WHERE id = ?", params
+            query, params = self._build_update_query(
+                "tools", "id", tool_id, ["parameters"], **kwargs
             )
-
+            conn.execute(query, params)
             return True
 
     async def delete_tool(self, tool_id: str) -> bool:
@@ -1113,10 +1059,10 @@ class ConfigDB:
         name: str,
         provider: str,
         model_name: str,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         use_react_agent: bool = True,
         max_tokens_trimmed: int = 3000,
-        llm_specific_kwargs: Optional[Dict[str, Any]] = None,
+        llm_specific_kwargs: dict[str, Any] | None = None,
     ) -> str:
         """
         Create a new agent configuration.
@@ -1181,7 +1127,7 @@ class ConfigDB:
 
     # --- Global Config Methods (Stubs für API-Kompatibilität und mypy) ---
     def set_config(
-        self, key: str, value: Any, description: Optional[str] = None
+        self, key: str, value: Any, description: str | None = None
     ) -> None:
         """Set a global configuration value."""
         with self.connection() as conn:
@@ -1194,7 +1140,7 @@ class ConfigDB:
                 [key, json.dumps(value), description],
             )
 
-    def get_config(self, key: str) -> Optional[Any]:
+    def get_config(self, key: str) -> Any | None:
         """Get a global configuration value by key."""
         with self.connection() as conn:
             result = conn.execute(
@@ -1212,7 +1158,7 @@ class ConfigDB:
         with self.connection() as conn:
             conn.execute("DELETE FROM global_configs WHERE key = ?", [key])
 
-    def export_config(self, export_path: Optional[str] = None) -> str:
+    def export_config(self, export_path: str | None = None) -> str:
         """Export all global configs to a JSON file."""
         with self.connection() as conn:
             results = conn.execute(

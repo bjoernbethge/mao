@@ -5,33 +5,34 @@ Provides functionality to manage teams, supervisors, and team members.
 
 import logging
 import uuid
-from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, HTTPException, Depends
+from typing import Any
 
-from .db import ConfigDB
-from .api import get_config_db, active_agents
+from fastapi import APIRouter, Depends, HTTPException
+
 from ..agents import Supervisor, create_agent
-
+from .api import active_agents, get_config_db
+from .db import ConfigDB
+from .helpers import create_and_start_agent
 from .models import (
-    TeamCreate,
-    TeamUpdate,
-    TeamResponse,
-    TeamMemberCreate,
-    TeamMemberUpdate,
-    TeamMemberResponse,
     SupervisorCreate,
-    SupervisorUpdate,
     SupervisorResponse,
+    SupervisorUpdate,
+    TeamCreate,
+    TeamMemberCreate,
+    TeamMemberResponse,
+    TeamMemberUpdate,
     TeamMessage,
+    TeamResponse,
     TeamResponseMessage,
+    TeamUpdate,
 )
 
 # Create router
 router = APIRouter(prefix="/teams", tags=["teams"])
 
 # Global state for active supervisors and teams
-active_supervisors: Dict[str, Dict[str, Any]] = {}
-active_teams: Dict[str, Dict[str, Any]] = {}
+active_supervisors: dict[str, dict[str, Any]] = {}
+active_teams: dict[str, dict[str, Any]] = {}
 
 
 # Team management endpoints
@@ -62,9 +63,9 @@ async def create_team(team: TeamCreate, db: ConfigDB = Depends(get_config_db)):
     return await db.get_team(team_id)
 
 
-@router.get("", response_model=List[TeamResponse])
+@router.get("", response_model=list[TeamResponse])
 async def list_teams(
-    supervisor_id: Optional[str] = None,
+    supervisor_id: str | None = None,
     active_only: bool = False,
     db: ConfigDB = Depends(get_config_db),
 ):
@@ -196,7 +197,7 @@ async def add_team_member(
     raise HTTPException(status_code=500, detail="Failed to retrieve added team member")
 
 
-@router.get("/{team_id}/members", response_model=List[TeamMemberResponse])
+@router.get("/{team_id}/members", response_model=list[TeamMemberResponse])
 async def get_team_members(
     team_id: str, active_only: bool = False, db: ConfigDB = Depends(get_config_db)
 ):
@@ -321,9 +322,9 @@ async def create_supervisor(
     return await db.get_supervisor(supervisor_id)
 
 
-@router.get("/supervisors", response_model=List[SupervisorResponse])
+@router.get("/supervisors", response_model=list[SupervisorResponse])
 async def list_supervisors(
-    agent_id: Optional[str] = None, db: ConfigDB = Depends(get_config_db)
+    agent_id: str | None = None, db: ConfigDB = Depends(get_config_db)
 ):
     """Lists all supervisors, optionally filtered by agent_id"""
     supervisors = await db.list_supervisors(agent_id=agent_id)
@@ -410,49 +411,11 @@ async def start_team(team_id: str, db: ConfigDB = Depends(get_config_db)):
         for member in members:
             agent_id = member["agent_id"]
             if agent_id not in active_agents:
-                # Start the agent
                 agent_config = await db.get_agent(agent_id)
                 if agent_config:
-                    # Get tools for the agent
-                    tools = None
-                    agent_tools = await db.get_agent_tools(agent_id, enabled_only=True)
-                    if agent_tools:
-                        # Import necessary modules for creating tools
-                        try:
-                            # Convert DB tool objects to LangChain tools
-                            tool_list = []
-                            for tool in agent_tools:
-                                # Create a simple tool description for use in agents
-                                tool_desc = {
-                                    "name": tool["name"],
-                                    "description": tool.get("description", ""),
-                                    "parameters": tool.get("parameters", {}),
-                                }
-                                tool_list.append(tool_desc)
-                            tools = tool_list
-                        except Exception as e:
-                            logging.warning(
-                                f"Failed to load tools for agent {agent_id}: {e}"
-                            )
-                            tools = None
-
-                    # Create and start the agent
-                    agent_app = await create_agent(
-                        provider=agent_config["provider"],
-                        model_name=agent_config["model_name"],
-                        agent_name=agent_config["name"],
-                        system_prompt=agent_config.get("system_prompt"),
-                        use_react_agent=agent_config.get("use_react_agent", True),
-                        max_tokens_trimmed=agent_config.get("max_tokens_trimmed", 3000),
-                        llm_specific_kwargs=agent_config.get("llm_specific_kwargs"),
-                        tools=tools,
+                    await create_and_start_agent(
+                        db, agent_id, agent_config, active_agents
                     )
-
-                    # Add agent to active agents
-                    active_agents[agent_id] = {
-                        "agent": agent_app,
-                        "config": agent_config,
-                    }
 
         # Handle supervisor if configured
         supervisor_app = None

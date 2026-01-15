@@ -2,16 +2,17 @@
 Storage-related API endpoints (Configuration and Import/Export).
 """
 
-import os
 import json
+import os
 import uuid
-from typing import Dict, Any
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
+from typing import Any
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
+from .api import get_config_db
 from .db import ConfigDB
 from .models import Config
-from .api import get_config_db
 
 # Create router
 config_router = APIRouter(prefix="/config", tags=["config"])
@@ -88,7 +89,7 @@ def export_configuration_file(db: ConfigDB = Depends(get_config_db)):
 
 @export_router.post("/import", status_code=204)
 async def import_configuration(
-    config_data: Dict[str, Any], db: ConfigDB = Depends(get_config_db)
+    config_data: dict[str, Any], db: ConfigDB = Depends(get_config_db)
 ):
     """Importiert eine Konfiguration aus JSON-Daten"""
     # Temporäre Datei für den Import erstellen

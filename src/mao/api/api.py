@@ -3,18 +3,20 @@ MCP Agents API Application.
 Provides a REST API for managing and interacting with MCP agents.
 """
 
-import os
 import logging
-from typing import Dict, Any, Optional, AsyncGenerator
+import os
+from collections.abc import AsyncGenerator
+from typing import Any
+
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
 
 from .db import ConfigDB
 
 # Global state for active agents
-active_agents: Dict[str, Dict[str, Any]] = {}
+active_agents: dict[str, dict[str, Any]] = {}
 
 
 # Global dependency functions
@@ -49,9 +51,9 @@ class MCPAgentsAPI(FastAPI):
         title: str = "MCP Agents API",
         description: str = "API for managing and interacting with MCP agents",
         version: str = "1.0.0",
-        db_path: Optional[str] = None,
-        *args,
-        **kwargs,
+        db_path: str | None = None,
+        *args: Any,
+        **kwargs: Any,
     ):
         """
         Initialize the API application with configurations and routers.
@@ -68,7 +70,7 @@ class MCPAgentsAPI(FastAPI):
         )
 
         self.db_path = db_path or os.environ.get("MCP_DB_PATH", "mcp_config.duckdb")
-        self.active_agents: Dict[str, Dict[str, Any]] = {}
+        self.active_agents: dict[str, dict[str, Any]] = {}
 
         # Add middleware
         self._setup_middleware()
@@ -150,7 +152,7 @@ class MCPAgentsAPI(FastAPI):
             logging.error(f"Database error in dependency: {e}")
             raise
 
-    def get_active_agents(self):
+    def get_active_agents(self) -> dict[str, dict[str, Any]]:
         """Dependency for accessing the active agents registry"""
         return self.active_agents
 

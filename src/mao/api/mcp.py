@@ -2,26 +2,26 @@
 MCP-related API endpoints (Servers and Tools).
 """
 
-import uuid
-import os
 import json
+import os
+import uuid
 from pathlib import Path
-from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Depends
+
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
+from .api import get_config_db
 from .db import ConfigDB
 from .models import (
-    ServerCreate,
-    ServerUpdate,
-    ServerResponse,
-    ToolCreate,
-    ToolUpdate,
-    ToolResponse,
     AssignToolRequest,
+    ServerCreate,
+    ServerResponse,
+    ServerUpdate,
+    ToolCreate,
+    ToolResponse,
+    ToolUpdate,
 )
-from .api import get_config_db
 
 
 router = APIRouter(prefix="/mcp", tags=["mcp"])
@@ -50,7 +50,7 @@ async def create_new_server(
     return await db.get_server(server_id)
 
 
-@router.get("/servers", response_model=List[ServerResponse])
+@router.get("/servers", response_model=list[ServerResponse])
 async def list_all_servers(db: ConfigDB = Depends(get_config_db)):
     """Lists all configured servers"""
     return await db.list_servers()
@@ -117,9 +117,9 @@ async def create_new_tool(tool: ToolCreate, db: ConfigDB = Depends(get_config_db
     return await db.get_tool(tool_id)
 
 
-@router.get("/tools", response_model=List[ToolResponse])
+@router.get("/tools", response_model=list[ToolResponse])
 async def list_all_tools(
-    server_id: Optional[str] = None, db: ConfigDB = Depends(get_config_db)
+    server_id: str | None = None, db: ConfigDB = Depends(get_config_db)
 ):
     """Lists all configured tools, optionally filtered by server"""
     return await db.list_tools(server_id=server_id)
@@ -277,7 +277,7 @@ async def get_mcp_config(
 
 @router.post("/export-config", status_code=200)
 async def export_mcp_config(
-    filepath: Optional[Path] = None,
+    filepath: Path | None = None,
     enabled_only: bool = True,
     db: ConfigDB = Depends(get_config_db),
 ):
