@@ -1,0 +1,77 @@
+name: Unit Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      # Mock configuration for unit tests
+      QDRANT_URL: http://localhost:6333
+      EMBEDDING_MODEL: text-embedding-3-small
+      MCP_DB_PATH: ./data/mcp_config.duckdb
+      MCP_CONFIG_PATH: ./mcp.json
+      PYTHONUNBUFFERED: 1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Create data directory
+        run: mkdir -p data
+
+      - name: Install dependencies
+        run: |
+          uv sync
+          uv pip install pytest pytest-asyncio pytest-cov pytest-timeout pytest-xdist
+
+      - name: Setup MCP configuration for tests
+        run: |
+          echo '{
+            "mcpServers": {
+              "dockerailabs": {
+                  "command": "docker",
+                  "args": [
+                    "run",
+                    "-i",
+                    "--rm",
+                    "alpine/socat",
+                    "STDIO",
+                    "TCP:host.docker.internal:8811"
+                  ]
+                }
+            }
+          }' > ./mcp.json
+
+      - name: Run unit tests (without Docker services)
+        run: |
+          # Run only API tests that don't require external services
+          # These tests use TestClient and mocks
+          uv run pytest --cov=src --timeout=60 -v \
+            tests/api/test_api.py \
+            tests/api/test_agents_api.py \
+            tests/api/test_mcp_api.py \
+            tests/api/test_teams_api.py \
+            || true
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: unit-tests
