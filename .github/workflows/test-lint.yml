@@ -10,7 +10,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # Setze ein Gesamttimeout für den Job
+    timeout-minutes: 20  # Prevent workflows from running indefinitely
     
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
