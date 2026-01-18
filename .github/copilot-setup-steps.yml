@@ -1,0 +1,45 @@
+name: Setup MAO Development Environment
+description: Pre-install dependencies and setup development environment for MAO project
+
+steps:
+  - name: Install uv package manager
+    run: |
+      curl -LsSf https://astral.sh/uv/install.sh | sh
+      export PATH="$HOME/.local/bin:$PATH"
+    
+  - name: Verify Python version
+    run: |
+      python --version
+      # Project requires Python 3.11+
+    
+  - name: Install project dependencies
+    run: |
+      cd $GITHUB_WORKSPACE
+      uv sync
+    
+  - name: Install development dependencies
+    run: |
+      cd $GITHUB_WORKSPACE
+      uv sync --group dev
+    
+  - name: Verify installations
+    run: |
+      cd $GITHUB_WORKSPACE
+      uv run python -c "import fastapi; import qdrant_client; import langchain; print('Dependencies installed successfully')"
+    
+  - name: Setup environment file
+    run: |
+      cd $GITHUB_WORKSPACE
+      if [ ! -f .env ]; then
+        cp .env.example .env
+        echo "Created .env file from .env.example"
+      fi
+    
+  - name: Display project structure
+    run: |
+      cd $GITHUB_WORKSPACE
+      echo "Project structure:"
+      ls -la
+      echo ""
+      echo "Source structure:"
+      ls -la src/mao/
