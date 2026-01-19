@@ -46,17 +46,17 @@ Pre-installation steps for Copilot's development environment:
 - Setup environment file from `.env.example`
 - Display project structure
 
-### 4. Custom Agents (`.github/copilot/AGENTS.md`)
-Specialized agent definitions for domain-specific tasks:
-- **api-architect**: FastAPI endpoints and API design
-- **mcp-integration-expert**: MCP protocol and server integration
-- **agent-orchestrator**: Multi-agent coordination with LangGraph
-- **llm-integration-specialist**: LLM provider integration and prompt engineering
-- **vector-store-engineer**: Qdrant operations and embeddings
-- **rag-developer**: RAG pipeline development
-- **async-python-expert**: Async/await patterns and Python best practices
-- **database-specialist**: DuckDB analytics and data modeling
-- **test-engineer**: Test strategy and pytest implementation
+### 4. Custom Agents (`.github/agents/*.agent.md`)
+Specialized agent definitions for domain-specific tasks, each in its own file:
+- **api-architect.agent.md**: FastAPI endpoints and API design
+- **mcp-integration-expert.agent.md**: MCP protocol and server integration
+- **agent-orchestrator.agent.md**: Multi-agent coordination with LangGraph
+- **llm-integration-specialist.agent.md**: LLM provider integration and prompt engineering
+- **vector-store-engineer.agent.md**: Qdrant operations and embeddings
+- **rag-developer.agent.md**: RAG pipeline development
+- **async-python-expert.agent.md**: Async/await patterns and Python best practices
+- **database-specialist.agent.md**: DuckDB analytics and data modeling
+- **test-engineer.agent.md**: Test strategy and pytest implementation
 
 ## How Copilot Uses These Instructions
 
@@ -79,9 +79,17 @@ Specialized agent definitions for domain-specific tasks:
 .github/
 ├── copilot-instructions.md          # Main repository-wide instructions
 ├── setup.yml                         # Development environment setup
-├── copilot/
-│   └── AGENTS.md                    # Custom agent definitions
-├── instructions/
+├── agents/                           # Custom agent definitions (one per file)
+│   ├── api-architect.agent.md
+│   ├── mcp-integration-expert.agent.md
+│   ├── agent-orchestrator.agent.md
+│   ├── llm-integration-specialist.agent.md
+│   ├── vector-store-engineer.agent.md
+│   ├── rag-developer.agent.md
+│   ├── async-python-expert.agent.md
+│   ├── database-specialist.agent.md
+│   └── test-engineer.agent.md
+├── instructions/                     # Path-specific instructions
 │   ├── api-endpoints.instructions.md
 │   ├── mcp-integration.instructions.md
 │   ├── rag-system.instructions.md
