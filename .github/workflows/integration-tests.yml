@@ -132,7 +132,7 @@ jobs:
             tests/api/test_live_api.py
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: integration-tests
