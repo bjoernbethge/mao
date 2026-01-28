@@ -99,7 +99,9 @@ class VectorStoreBase:
         url: str = QDRANT_URL,
         collection_name: str = "default_collection",
         recreate_on_dim_mismatch: bool = False,
-        embedding_provider: Callable[[], Awaitable[tuple[Embeddings, int]]] | None = None,
+        embedding_provider: (
+            Callable[[], Awaitable[tuple[Embeddings, int]]] | None
+        ) = None,
     ):
         self.collection_name = collection_name
         self.qdrant_url = url
@@ -136,7 +138,9 @@ class VectorStoreBase:
         url: str = QDRANT_URL,
         collection_name: str = "default_collection",
         recreate_on_dim_mismatch: bool = False,
-        embedding_provider: Callable[[], Awaitable[tuple[Embeddings, int]]] | None = None,
+        embedding_provider: (
+            Callable[[], Awaitable[tuple[Embeddings, int]]] | None
+        ) = None,
     ) -> "VectorStoreBase":
         """Factory method for async initialization"""
         instance = cls(
@@ -743,7 +747,9 @@ class KnowledgeTree(VectorStoreBase):
         url: str = QDRANT_URL,
         collection_name: str = "knowledge_tree",
         recreate_on_dim_mismatch: bool = False,
-        embedding_provider: Callable[[], Awaitable[tuple[Embeddings, int]]] | None = None,
+        embedding_provider: (
+            Callable[[], Awaitable[tuple[Embeddings, int]]] | None
+        ) = None,
     ) -> "KnowledgeTree":
         """Factory method for async initialization"""
         instance = cls(url, collection_name, recreate_on_dim_mismatch)
@@ -829,7 +835,9 @@ class ExperienceTree(KnowledgeTree):
         url: str = QDRANT_URL,
         collection_name: str = "experience_tree",
         recreate_on_dim_mismatch: bool = False,
-        embedding_provider: Callable[[], Awaitable[tuple[Embeddings, int]]] | None = None,
+        embedding_provider: (
+            Callable[[], Awaitable[tuple[Embeddings, int]]] | None
+        ) = None,
     ) -> "ExperienceTree":
         """Factory method for async initialization"""
         instance = cls(url, collection_name, recreate_on_dim_mismatch)
