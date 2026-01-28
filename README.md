@@ -117,9 +117,25 @@ MCP_DB_PATH=/path/to/mcp_config.duckdb
 MCP_CONFIG_PATH=/path/to/mcp.json
 OLLAMA_HOST=http://localhost:11434
 
+# MCP Server API Keys
+CONTEXT7_API_KEY=your-context7-api-key  # For up-to-date code documentation
+
 # Server
 PORT=8000
 ```
+
+## MCP Servers
+
+MAO includes several MCP (Model Context Protocol) servers configured by default:
+
+- **context7**: Provides up-to-date code documentation and examples
+  - Requires: `CONTEXT7_API_KEY` environment variable
+  - Get your API key from [context7.com](https://context7.com)
+  - Enables AI agents to access current library documentation
+- **dockerailabs**: Docker-based MCP server via socat
+- **perplexity-ask**: AI-powered search via Perplexity API
+
+To configure MCP servers, edit `mcp.json` in the project root.
 
 ## Docker
 

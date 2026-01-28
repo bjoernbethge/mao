@@ -1,294 +1,292 @@
-# MAO - MCP Agent Orchestra
+# MAO - MCP Agent Orchestra: Developer Guide
 
-## Project Overview
+## Quick Repository Overview
 
-MAO (MCP Agent Orchestra) is a modern framework for orchestrating AI agents using the Model Context Protocol (MCP). It provides infrastructure for multi-agent coordination, vector-based knowledge storage, and LLM integration for building sophisticated AI systems.
+**MAO** (MCP Agent Orchestra) is a Python 3.11+ FastAPI framework for orchestrating AI agents using the Model Context Protocol (MCP), LangChain, and vector databases. The codebase is **~1.8MB** with **26 Python files** across **~4,400 lines of code**.
 
-**Core Purpose:** Enable seamless orchestration of multiple AI agents with MCP tool integration, vector memory, and flexible LLM backends.
+**Tech Stack**: FastAPI, LangChain, LangGraph, Qdrant (vectors), DuckDB (analytics), OpenAI/Anthropic/Ollama (LLMs)
 
-## Tech Stack
-
-### Core Dependencies
-- **Python 3.11+** - Required for modern async features and type hints
-- **uv** - Modern Python package manager (NOT pip)
-- **FastAPI** - Async web framework for API endpoints
-- **Pydantic** - Data validation and settings management
-
-### AI/ML Stack
-- **LangChain** - LLM orchestration and chains
-- **LangGraph** - Agent workflow graphs and state machines
-- **LangChain-MCP-Adapters** - MCP protocol integration
-- **OpenAI/Anthropic** - LLM API clients
-- **Ollama** - Local LLM support
-
-### Data & Storage
-- **Qdrant** - Vector database for agent memory and knowledge
-- **DuckDB** - Embedded analytics database
-- **httpx** - Async HTTP client
-
-## Architecture Principles
-
-### Modular Design (CRITICAL)
-- **No god classes** - Break functionality into focused modules
-- **DRY principle** - Avoid code duplication, create reusable components
-- **Folder-based organization** - Related functionality in dedicated folders with multiple files
-
-### Core Concepts
-- **Agent**: LLM-powered autonomous entity with tools and memory
-- **MCP Server**: External tool/resource provider following Model Context Protocol
-- **Orchestrator**: Coordinates multiple agents using LangGraph workflows
-- **Vector Store**: Knowledge base using Qdrant for semantic search
-- **RAG System**: Retrieval-Augmented Generation for contextual responses
-
-## Code Style
-
-### Python Standards
-- **Type hints**: REQUIRED for all function signatures
-- **Async/await**: Use async patterns for I/O operations
-- **Formatting**: Black (line length 88) - run with `uv run black .`
-- **Linting**: Ruff for fast linting - run with `uv run ruff check .`
-- **Type checking**: mypy (configured in pyproject.toml)
-- **Docstrings**: Google-style for public APIs
-
-### Package Management
-- **Always use `uv`** for dependency management
-- Install: `uv pip install <package>`
-- Add dependencies: `uv add <package>`
-- Dev dependencies: `uv add --dev <package>`
-- Sync environment: `uv sync`
-- Never use pip directly
-
-### Naming Conventions
-- `snake_case` - Functions, variables, modules
-- `PascalCase` - Classes
-- `UPPER_SNAKE_CASE` - Constants
-- `_private` - Internal methods/attributes
-
-## Key Components
-
-### 1. Agent System (`mao/agents.py`)
-- LangChain-based agent implementations
-- Tool integration and function calling
-- Agent memory and context management
-- Conversation handling and history
-
-### 2. MCP Integration (`mao/mcp.py`)
-- Model Context Protocol server management
-- MCP tool discovery and registration
-- Dynamic tool loading from MCP servers
-- Protocol compliance and validation
-
-### 3. RAG System (`mao/rag-system.py`)
-- Retrieval-Augmented Generation pipeline
-- Document chunking and embedding
-- Vector similarity search
-- Context-aware response generation
-
-### 4. Storage Layer (`mao/storage.py`)
-- Qdrant vector database operations
-- DuckDB analytics queries
-- Memory persistence and retrieval
-- Collection management
-
-### 5. API Layer (`mao/api/`)
-- FastAPI routes and endpoints
-- Request/response validation
-- WebSocket support for streaming
-- Health checks and monitoring
-
-## Development Guidelines
-
-### Adding New Agents
-```python
-from langchain_anthropic import ChatAnthropic
-from langgraph.prebuilt import create_react_agent
-
-async def create_agent(tools: list) -> Agent:
-    llm = ChatAnthropic(model="claude-3-5-sonnet-20241022")
-    agent = create_react_agent(llm, tools)
-    return agent
+**Project Structure**:
+```
+/home/runner/work/mao/mao/
+├── src/mao/              # Main package (agents, storage, MCP, API)
+│   ├── agents.py         # Agent creation and management
+│   ├── storage.py        # Vector stores (KnowledgeTree, ExperienceTree)
+│   ├── mcp.py           # MCP protocol client integration
+│   ├── rag-system.py    # RAG pipeline implementation
+│   ├── tools.py         # Agent tools
+│   └── api/             # FastAPI routes (agents, teams, MCP, storage)
+├── tests/               # Unit and integration tests
+├── pyproject.toml       # Dependencies and tool configs
+├── docker-compose.yml   # Services: api, qdrant, ollama
+└── .github/workflows/   # CI/CD pipelines
 ```
 
-### Integrating MCP Servers
-```python
-from mao.mcp import MCPServerManager
+## Critical Setup & Build Instructions
 
-async def add_mcp_server(server_config: dict):
-    manager = MCPServerManager()
-    await manager.add_server(server_config)
-    tools = await manager.get_tools()
-    return tools
-```
+### Prerequisites
+- **Python 3.11** (required - see `.python-version`)
+- **uv package manager** (NOT pip - this is mandatory)
+- **Docker** (for services: Qdrant, Ollama)
 
-### Working with Vector Store
-```python
-from mao.storage import QdrantStore
+### Bootstrap Process (ALWAYS follow this sequence)
 
-async def store_documents(docs: list[str]):
-    store = QdrantStore()
-    await store.add_documents(docs)
-    results = await store.search(query="...", limit=5)
-    return results
-```
-
-### Building API Endpoints
-```python
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-
-router = APIRouter()
-
-class AgentRequest(BaseModel):
-    query: str
-    context: dict | None = None
-
-@router.post("/agent/query")
-async def query_agent(request: AgentRequest):
-    # Implement endpoint logic
-    pass
-```
-
-## Testing Strategy
-
-### Unit Tests
-- Test individual agent behaviors
-- Mock LLM responses for deterministic tests
-- Test MCP tool integration
-- Verify vector store operations
-
-### Integration Tests
-- Full agent workflows
-- MCP server communication
-- API endpoint testing
-- LLM provider integration
-
-### Test Requirements
-- Use pytest with async support (`pytest-asyncio`)
-- Run tests: `uv run pytest`
-- Coverage: `uv run pytest --cov=mao`
-- Mark async tests: `@pytest.mark.asyncio`
-
-## Configuration Management
-
-### Environment Variables
-Required environment variables:
+**Step 1: Install uv**
 ```bash
-OPENAI_API_KEY=...           # OpenAI API key
-ANTHROPIC_API_KEY=...        # Anthropic API key
-QDRANT_URL=localhost:6333    # Qdrant server URL
-OLLAMA_URL=localhost:11434   # Ollama server URL
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
-### Settings Files
-- Use Pydantic settings for configuration
-- Support .env files with python-dotenv
-- Validate all settings on startup
-- Never commit secrets to git
-
-## MCP Protocol
-
-### What is MCP?
-Model Context Protocol enables LLMs to:
-- Access external tools and resources
-- Query databases and APIs
-- Execute code and commands
-- Integrate with external services
-
-### MCP Server Types
-- **Stdio servers**: Communicate via stdin/stdout
-- **SSE servers**: Server-Sent Events for streaming
-- **HTTP servers**: REST API endpoints
-
-### Adding MCP Servers
-1. Define server configuration (connection, capabilities)
-2. Register with MCPServerManager
-3. Discover available tools
-4. Provide tools to agents
-
-## LangGraph Workflows
-
-### Agent Orchestration
-```python
-from langgraph.graph import StateGraph, END
-
-workflow = StateGraph(AgentState)
-workflow.add_node("agent1", agent1_node)
-workflow.add_node("agent2", agent2_node)
-workflow.add_edge("agent1", "agent2")
-workflow.add_edge("agent2", END)
-```
-
-### State Management
-- Define state schemas with TypedDict
-- Pass state between nodes
-- Handle conditional routing
-- Implement error recovery
-
-## Performance Considerations
-
-### Async Operations
-- Use async/await for all I/O operations
-- Avoid blocking operations in async context
-- Use asyncio.gather() for parallel tasks
-- Handle timeouts with asyncio.wait_for()
-
-### Vector Store Optimization
-- Batch document insertions
-- Use appropriate embedding models
-- Configure collection parameters
-- Implement caching for frequent queries
-
-### LLM Optimization
-- Cache LLM responses when appropriate
-- Use streaming for long responses
-- Implement retry logic with tenacity
-- Monitor token usage and costs
-
-## Common Tasks
-
-### Start Development Server
+**Step 2: Install dependencies**
 ```bash
-uv run uvicorn mao.api.main:app --reload
+# ALWAYS run this first before any other command
+uv sync
 ```
+- Installs all dependencies from `pyproject.toml`
+- Creates `.venv/` virtual environment
+- Takes ~30-60 seconds
+- **CRITICAL**: Never use `pip install` - always use `uv`
 
-### Run Tests
+**Step 3: Create data directory**
 ```bash
-uv run pytest
-uv run pytest --cov=mao --cov-report=html
+mkdir -p data
 ```
 
-### Add Dependency
+### Required Environment Variables
+
+Create `.env` from `.env.example`:
 ```bash
-uv add package-name
-uv add --dev pytest-package
+# LLM API Keys (at least one required for integration tests)
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Vector Database
+QDRANT_URL=http://localhost:6333
+EMBEDDING_MODEL=text-embedding-3-small
+
+# DuckDB & MCP
+MCP_DB_PATH=./data/mcp_config.duckdb
+MCP_CONFIG_PATH=./mcp.json
+OLLAMA_HOST=http://localhost:11434
+
+# MCP Server API Keys (optional)
+CONTEXT7_API_KEY=your-context7-api-key  # For up-to-date code docs
 ```
 
-### Format and Lint
+**Note**: context7 MCP server is configured in `mcp.json` and provides AI agents with access to current library documentation. Get an API key from [context7.com](https://context7.com) if needed.
+
+### Docker Services (Required for Integration Tests)
+
+**Start services:**
+```bash
+docker compose up -d
+```
+
+Services started:
+- Qdrant (ports 6333, 6334)
+- Ollama (port 11434)
+- API (port 8000)
+
+**Wait for services to be ready** (IMPORTANT - services take time to start):
+```bash
+# Wait for Qdrant (up to 60 seconds)
+until curl -s http://localhost:6333/health > /dev/null; do sleep 1; done
+
+# Wait for Ollama (up to 60 seconds)
+until curl -s http://localhost:11434/api/version > /dev/null; do sleep 2; done
+```
+
+## Linting, Formatting, and Type Checking
+
+**ALWAYS run these before committing code:**
+
+### 1. Format code with Black
 ```bash
 uv run black .
+```
+- Line length: 88 (configured in pyproject.toml)
+- Modifies files in place
+- Takes ~5 seconds
+
+### 2. Lint with Ruff
+```bash
 uv run ruff check .
-uv run mypy mao/
+```
+- Fast linting (~2 seconds)
+- Auto-fix: `uv run ruff check --fix .`
+- Config in `pyproject.toml`
+
+### 3. Type check with mypy
+```bash
+uv run mypy .
+```
+- Takes ~10-15 seconds
+- Config in `[tool.mypy]` section of `pyproject.toml`
+- Some modules have `ignore_errors = true` (e.g., `mao.agents`)
+
+**Pre-commit hooks**: Configured in `.pre-commit-config.yaml` (black, ruff, mypy)
+
+## Testing
+
+### Unit Tests (Fast - No External Services)
+```bash
+# Run API unit tests only (~15-30 seconds)
+uv run pytest tests/api/test_api.py tests/api/test_agents_api.py tests/api/test_mcp_api.py tests/api/test_teams_api.py -v --timeout=60
+```
+- Uses mocks, no Docker services required
+- Set `QDRANT_URL`, `MCP_DB_PATH`, `MCP_CONFIG_PATH` env vars (see unit-tests.yml)
+
+### Integration Tests (Slow - Requires Docker Services)
+```bash
+# Start Docker services FIRST (see above)
+uv run pytest tests/test_storage.py tests/test_agents.py tests/test_mcp.py tests/api/test_live_api.py -v --timeout=120
+```
+- Requires: Qdrant, Ollama running
+- Requires: `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` in environment
+- Takes ~2-5 minutes
+- Timeout: 120 seconds per test
+
+### Run All Tests with Coverage
+```bash
+uv run pytest --cov=src --cov-report=html -v
 ```
 
-## Security Notes
-- Validate all LLM inputs and outputs
-- Sanitize tool parameters before execution
-- Use environment variables for API keys
-- Implement rate limiting for API endpoints
-- Never log sensitive information
-- Validate MCP server configurations
+### Test Structure
+- `tests/` - Unit tests for core modules
+- `tests/api/` - API endpoint tests
+- `tests/conftest.py` - Shared fixtures
+- Mark async tests with `@pytest.mark.asyncio`
 
-## Troubleshooting
+## Running the Application
 
-### Common Issues
-1. **Import errors**: Run `uv sync` to install dependencies
-2. **Type errors**: Check mypy configuration in pyproject.toml
-3. **Async errors**: Ensure all I/O operations use async/await
-4. **MCP connection**: Verify server URL and protocol
-5. **Vector store**: Check Qdrant is running and accessible
+### Development Server
+```bash
+# From project root
+uv run uvicorn src.mao.api.api:api --host 0.0.0.0 --port 8000 --reload
+```
+- API docs: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc
+- Health check: http://localhost:8000/health
 
-## Resources
-- [Model Context Protocol Spec](https://modelcontextprotocol.io/)
-- [LangChain Documentation](https://python.langchain.com/)
-- [LangGraph Guide](https://langchain-ai.github.io/langgraph/)
-- [Qdrant Documentation](https://qdrant.tech/documentation/)
+### Production (Docker)
+```bash
+docker compose up -d
+```
+
+## GitHub Actions CI/CD
+
+### Workflows (in `.github/workflows/`)
+
+1. **test-lint.yml** - Runs on ALL PRs
+   - Linting (ruff), formatting (black), type checking (mypy)
+   - Timeout: 10 minutes
+   - NO external services needed
+
+2. **unit-tests.yml** - Runs on ALL PRs
+   - Fast API tests with mocks
+   - Timeout: 15 minutes
+   - NO Docker services needed
+
+3. **integration-tests.yml** - Runs on main OR with 'test-integration' label
+   - Full tests with Qdrant + Ollama
+   - Timeout: 30 minutes
+   - Requires secrets: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`
+
+4. **docker-build.yml** - Builds Docker images
+   - Multi-platform: linux/amd64, linux/arm64 (for tags)
+   - Pushes to ghcr.io
+   - Timeout: 30 minutes
+
+### To run integration tests on your PR:
+```bash
+# Add label to PR
+gh pr edit <PR-NUMBER> --add-label "test-integration"
+```
+
+## Key Architecture Elements
+
+### Core Modules
+- **`src/mao/agents.py`** (Agent, Supervisor, create_agent) - LangChain-based agent creation
+- **`src/mao/storage.py`** (KnowledgeTree, ExperienceTree) - Qdrant vector stores
+- **`src/mao/mcp.py`** (MCPClient) - MCP protocol integration
+- **`src/mao/rag-system.py`** - RAG pipeline for document retrieval
+- **`src/mao/tools.py`** - Agent tool definitions
+
+### API Endpoints (`src/mao/api/`)
+- **`api.py`** - Main FastAPI app, middleware, exception handlers
+- **`agents.py`** - Agent CRUD and chat endpoints
+- **`teams.py`** - Team management and supervisor coordination
+- **`mcp.py`** - MCP server and tool management
+- **`storage.py`** - Vector store operations
+- **`db.py`** - DuckDB configuration storage
+- **`models.py`** - Pydantic request/response models
+
+### Configuration Files
+- **`pyproject.toml`** - Dependencies, tool configs (black, mypy, pytest)
+- **`mcp.json`** - MCP server configurations
+- **`docker-compose.yml`** - Service definitions
+- **`.pre-commit-config.yaml`** - Git hooks (black, ruff, mypy)
+
+## Code Style Requirements
+
+- **Type hints**: Required for all function signatures
+- **Async/await**: Required for I/O operations
+- **Docstrings**: Google-style for public APIs
+- **Naming**: `snake_case` (functions/vars), `PascalCase` (classes), `UPPER_SNAKE_CASE` (constants)
+- **Line length**: 88 characters (Black default)
+
+## Package Management with uv
+
+**Add dependency**:
+```bash
+uv add <package>
+```
+
+**Add dev dependency**:
+```bash
+uv add --dev <package>
+```
+
+**Update dependencies**:
+```bash
+uv sync --upgrade
+```
+
+**NEVER use pip directly** - always use `uv`
+
+## Common Issues & Workarounds
+
+### Issue: Import errors after checkout
+**Solution**: Always run `uv sync` first
+
+### Issue: Tests fail with "Connection refused" to Qdrant
+**Solution**: Ensure Docker services are running and ready (see wait commands above)
+
+### Issue: Integration tests timeout
+**Solution**: Integration tests can take 2-5 minutes. Use `--timeout=120` flag
+
+### Issue: uv not found
+**Solution**: Install uv and add to PATH: `export PATH="$HOME/.local/bin:$PATH"`
+
+### Issue: Type checking fails on mao.agents
+**Expected**: `mao.agents` has `ignore_errors = true` in mypy config (complex LangChain types)
+
+### Issue: Docker build fails
+**Solution**: Ensure BuildKit is enabled: `export DOCKER_BUILDKIT=1`
+
+## Agent-Specific Instructions
+
+See `.github/instructions/` for specialized guidelines:
+- `test-files.instructions.md` - Pytest best practices
+- `api-endpoints.instructions.md` - FastAPI endpoint patterns
+- `mcp-integration.instructions.md` - MCP protocol guidelines
+- `rag-system.instructions.md` - RAG pipeline patterns
+
+## Trust These Instructions
+
+These instructions are validated against CI/CD workflows and reflect the actual working commands. Only search for additional information if:
+1. These instructions are incomplete for your specific task
+2. You encounter an error not documented here
+3. You need details about internal module implementation
+
+For any build/test/lint command, **trust and use the exact commands above** - they are proven to work in CI/CD.
