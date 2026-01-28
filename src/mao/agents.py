@@ -611,9 +611,7 @@ class Supervisor:
         logging.info("Supervisor initialized and compiled successfully.")
         return self.app
 
-    async def invoke(
-        self, messages: list[dict], thread_id: str | None = None
-    ) -> Any:
+    async def invoke(self, messages: list[dict], thread_id: str | None = None) -> Any:
         """Invokes the supervisor asynchronously with a list of messages."""
         if self.app is None:
             raise RuntimeError(

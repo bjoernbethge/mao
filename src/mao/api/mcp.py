@@ -23,7 +23,6 @@ from .models import (
     ToolUpdate,
 )
 
-
 router = APIRouter(prefix="/mcp", tags=["mcp"])
 
 
