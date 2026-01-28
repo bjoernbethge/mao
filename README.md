@@ -59,6 +59,8 @@ API documentation is available at:
 
 ```bash
 # With uv (recommended)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# Review the install script or use your package manager if you prefer.
 uv sync
 
 ```
@@ -67,21 +69,31 @@ uv sync
 
 ```python
 from mao.agents import create_agent
-from mao.storage import VectorStorage
+from mao.storage import KnowledgeTree, ExperienceTree
 
 # Initialize storage
-storage = await VectorStorage.create(collection_name="agent-memory")
+knowledge_tree = await KnowledgeTree.create(collection_name="agent-memory")
+experience_tree = await ExperienceTree.create(collection_name="agent-experience")
 
 # Create an agent
-agent = await create_agent(
-    name="assistant",
-    model="anthropic/claude-3-opus-20240229",
-    storage=storage
+agent_app = await create_agent(
+    provider="anthropic",
+    model_name="claude-3-opus-20240229",
+    agent_name="assistant",
+    knowledge_tree=knowledge_tree,
+    experience_tree=experience_tree,
 )
 
 # Execute a query
-response = await agent.run("Analyze the latest economic data")
-print(response)
+response = await agent_app.ainvoke(
+    {"messages": [{"role": "user", "content": "Analyze the latest economic data"}]}
+)
+if hasattr(response, "content"):
+    print(response.content)
+elif isinstance(response, dict) and response.get("messages"):
+    print(response["messages"][-1].content)
+else:
+    print(response)
 ```
 
 ## Environment Variables
@@ -95,6 +107,7 @@ ANTHROPIC_API_KEY=sk-...
 
 # Vector Database
 QDRANT_URL=http://localhost:6333
+QDRANT_API_KEY=your-qdrant-api-key
 EMBEDDING_MODEL=text-embedding-3-small
 
 # DuckDB Configuration
@@ -103,6 +116,9 @@ MCP_DB_PATH=/path/to/mcp_config.duckdb
 # MCP Configuration
 MCP_CONFIG_PATH=/path/to/mcp.json
 OLLAMA_HOST=http://localhost:11434
+
+# Server
+PORT=8000
 ```
 
 ## Docker
@@ -143,8 +159,6 @@ docker run -p 8000:8000 --env-file .env mao-api
 You can also use Docker Compose to manage environment variables:
 
 ```yaml
-version: '3'
-
 services:
   api:
     build:
@@ -169,7 +183,8 @@ async with httpx.AsyncClient() as client:
         "http://localhost:8000/agents",
         json={
             "name": "research_assistant",
-            "model": "claude-3-opus-20240229",
+            "provider": "anthropic",
+            "model_name": "claude-3-opus-20240229",
             "system_prompt": "You are a research assistant."
         }
     )
@@ -178,7 +193,7 @@ async with httpx.AsyncClient() as client:
     # Send a message to the agent
     response = await client.post(
         f"http://localhost:8000/agents/{agent_id}/chat",
-        json={"message": "Summarize the latest developments in AI."}
+        json={"content": "Summarize the latest developments in AI."}
     )
     print(response.json()["response"])
 ```

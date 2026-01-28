@@ -9,6 +9,8 @@ venv/
 ENV/
 env/
 .env
+.env.*
+!.env.example
 
 # Distribution / packaging
 .Python
@@ -65,4 +67,13 @@ data/
 
 # Logs
 logs/
-*.log 
+*.log
+
+# Project metadata
+PYPI_SETUP.md
+Procfile
+.github/
+.pre-commit-config.yaml
+mcp.json
+mcp_config.duckdb
+uv.lock

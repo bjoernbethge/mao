@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   api:
     build:
@@ -60,4 +58,4 @@ services:
 
 volumes:
   qdrant_data:
-  ollama_data: 
+  ollama_data:
