@@ -13,9 +13,8 @@ jobs:
     timeout-minutes: 15
 
     env:
-      # Mock configuration for unit tests
+      # Unit tests use FastEmbedEmbeddings (local, no API key needed)
       QDRANT_URL: http://localhost:6333
-      EMBEDDING_MODEL: text-embedding-3-small
       MCP_DB_PATH: ./data/mcp_config.duckdb
       MCP_CONFIG_PATH: ./mcp.json
       PYTHONUNBUFFERED: 1

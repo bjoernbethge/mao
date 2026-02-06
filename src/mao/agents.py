@@ -158,32 +158,13 @@ async def load_mcp_tools(
 
     if isinstance(mcp_client, MCPClient):
         logging.debug("Entering MCPClient context to load tools...")
-        async with mcp_client.session():
+        async with mcp_client.session() as client:
             try:
-                # Verwende die neue load_tools Methode für alle aktiven Server
-                all_tools = []
-                active_servers = mcp_client.list_active_servers()
-
-                if not active_servers:
-                    logging.warning("No active servers found in MCPClient")
-                    return []
-
-                for server_name in active_servers:
-                    try:
-                        server_tools = mcp_client.load_tools(server_name)
-                        logging.debug(
-                            f"Loaded {len(server_tools)} tools from server '{server_name}'"
-                        )
-                        all_tools.extend(server_tools)
-                    except Exception as e:
-                        logging.error(
-                            f"Failed to load tools from server '{server_name}': {e}"
-                        )
-
+                tools = client.get_tools()
                 logging.debug(
-                    f"Successfully loaded total of {len(all_tools)} tools from all active servers"
+                    f"Successfully loaded {len(tools)} tools from MCP servers"
                 )
-                return all_tools
+                return tools
             except Exception as e:
                 logging.error(f"Error loading MCP tools: {e}")
                 return []

@@ -34,23 +34,14 @@ def qdrant_url():
 
 @asyncio_fixture(scope="function")
 async def knowledge_tree(qdrant_url):
-    """Returns a fresh KnowledgeTree for each test, with clean collection."""
-    try:
-        tree = await KnowledgeTree.create(
-            url=qdrant_url,
-            collection_name="test_knowledge_collection",
-            recreate_on_dim_mismatch=True,
-            embedding_provider=get_real_embedding_provider,
-        )
-    except Exception as e:
-        logging.warning(f"Error creating KnowledgeTree with real embeddings: {e}")
-        logging.warning("Using fallback with mock embeddings")
-        tree = await KnowledgeTree.create(
-            url=qdrant_url,
-            collection_name="test_knowledge_collection",
-            recreate_on_dim_mismatch=True,
-            embedding_provider=mock_embedding_provider,
-        )
+    """Returns a fresh KnowledgeTree for each test, with clean collection.
+    Uses FastEmbedEmbeddings (local, no API key needed).
+    """
+    tree = await KnowledgeTree.create(
+        url=qdrant_url,
+        collection_name="test_knowledge_collection",
+        recreate_on_dim_mismatch=True,
+    )
 
     await tree.clear_all_points_async()
     yield tree
@@ -59,23 +50,14 @@ async def knowledge_tree(qdrant_url):
 
 @asyncio_fixture(scope="function")
 async def experience_tree(qdrant_url):
-    """Returns a fresh ExperienceTree for each test, with clean collection."""
-    try:
-        tree = await ExperienceTree.create(
-            url=qdrant_url,
-            collection_name="test_experience_collection",
-            recreate_on_dim_mismatch=True,
-            embedding_provider=get_real_embedding_provider,
-        )
-    except Exception as e:
-        logging.warning(f"Error creating ExperienceTree with real embeddings: {e}")
-        logging.warning("Using fallback with mock embeddings")
-        tree = await ExperienceTree.create(
-            url=qdrant_url,
-            collection_name="test_experience_collection",
-            recreate_on_dim_mismatch=True,
-            embedding_provider=mock_embedding_provider,
-        )
+    """Returns a fresh ExperienceTree for each test, with clean collection.
+    Uses FastEmbedEmbeddings (local, no API key needed).
+    """
+    tree = await ExperienceTree.create(
+        url=qdrant_url,
+        collection_name="test_experience_collection",
+        recreate_on_dim_mismatch=True,
+    )
 
     await tree.clear_all_points_async()
     yield tree
@@ -197,38 +179,3 @@ def pytest_sessionfinish(session, exitstatus):
             os.remove(test_db_path)
         except Exception as e:
             logging.warning(f"Could not remove test database: {e}")
-
-
-async def get_real_embedding_provider():
-    """
-    Provides a real embedding provider for tests.
-    Uses the model defined in EMBEDDING_MODEL env var or default.
-    """
-    from langchain_openai import OpenAIEmbeddings
-
-    model_name = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
-    embeddings = OpenAIEmbeddings(model=model_name)
-    dimension = 1536  # Standard dimension for text-embedding-3-small
-
-    return embeddings, dimension
-
-
-class MockEmbeddings:
-    """Fallback embedding implementation when API keys are not available."""
-
-    def __init__(self, dimension=768):
-        self.dimension = dimension
-        logging.warning("Using MockEmbeddings! Configure API keys for real tests.")
-
-    def embed_query(self, text):
-        return [0.1] * self.dimension
-
-    def embed_documents(self, documents):
-        return [[0.1] * self.dimension for _ in documents]
-
-
-async def mock_embedding_provider():
-    """Fallback for tests when real embeddings are not available."""
-    logging.warning("Using mock_embedding_provider! Configure API keys for real tests.")
-    embed = MockEmbeddings(dimension=768)
-    return embed, 768

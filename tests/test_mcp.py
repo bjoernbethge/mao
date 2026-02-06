@@ -78,14 +78,12 @@ async def test_mcp_client_reload(mcp_client):
 @pytest.mark.asyncio
 async def test_mcp_client_get_tools(mcp_client):
     """Test getting tools from MCP servers."""
-    # Test getting tools in a context
+    # Test getting tools in a session context
     async with mcp_client.session() as client_in_context:
-        # get_tools is a synchronous method
         tools = client_in_context.get_tools()
         assert tools is not None, "No tools found from MCP servers"
         assert isinstance(tools, list), "get_tools should return a list"
 
-        # Log detailed information about found tools
         logging.info(f"Found: {len(tools)} tools from MCP servers")
 
         for i, tool in enumerate(tools):
@@ -94,19 +92,18 @@ async def test_mcp_client_get_tools(mcp_client):
                 "description": getattr(tool, "description", "No description"),
                 "type": type(tool).__name__,
             }
-            # Additional properties if available
             if hasattr(tool, "args_schema"):
                 tool_info["args_schema"] = str(tool.args_schema)
 
             logging.info(f"Tool {i+1}: {tool_info}")
 
-    # Test tool activation for specific tools if available
-    if tools:
-        test_tool = tools[0].name
-        await asyncio.to_thread(mcp_client.set_tool_enabled, test_tool, True)
-        assert await asyncio.to_thread(mcp_client.is_tool_enabled, test_tool)
-        await asyncio.to_thread(mcp_client.set_tool_enabled, test_tool, False)
-        assert not await asyncio.to_thread(mcp_client.is_tool_enabled, test_tool)
+        # Test tool activation for specific tools if available
+        if tools:
+            test_tool = tools[0].name
+            await asyncio.to_thread(mcp_client.set_tool_enabled, test_tool, True)
+            assert await asyncio.to_thread(mcp_client.is_tool_enabled, test_tool)
+            await asyncio.to_thread(mcp_client.set_tool_enabled, test_tool, False)
+            assert not await asyncio.to_thread(mcp_client.is_tool_enabled, test_tool)
 
 
 @pytest.mark.asyncio
@@ -156,6 +153,9 @@ async def test_mcp_client_session():
     # Test using the session context manager
     async with client.session() as session_client:
         assert session_client is client
+        # get_tools() should work inside session context
+        tools = session_client.get_tools()
+        assert isinstance(tools, list)
 
 
 @patch("httpx.Client.get")

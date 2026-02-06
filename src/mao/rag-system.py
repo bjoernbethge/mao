@@ -424,7 +424,7 @@ class EnhancedRAGSystem:
         base_embeddings = FastEmbeddingsModel(model_name=model_name)
 
         if self.enable_caching:
-            self.embedding_model = CachedEmbeddings(
+            self.embedding_model: Embeddings = CachedEmbeddings(
                 underlying_embeddings=base_embeddings,
                 namespace=f"fastembed:{model_name}",
             )
@@ -679,7 +679,10 @@ class EnhancedRAGSystem:
         Returns:
             List of documents with contextualized content.
         """
-        CONTEXT_PROMPT = ChatPromptTemplate.from_messages([HumanMessage(content="""
+        CONTEXT_PROMPT = ChatPromptTemplate.from_messages(
+            [
+                HumanMessage(
+                    content="""
             Given the following document chunk, provide a concise context (2-3 sentences) 
             that situates this chunk within a broader scope. Focus on key entities, relationships, 
             and the main topic to improve search retrieval.
@@ -688,7 +691,10 @@ class EnhancedRAGSystem:
             {chunk_content}
             
             CONCISE CONTEXT:
-            """)])
+            """
+                )
+            ]
+        )
 
         contextualized_chunks = []
 
@@ -807,7 +813,7 @@ class EnhancedRAGSystem:
         if use_hybrid and self.bm25_index is not None:
             return self._hybrid_retrieval(query, k)
         else:
-            return active_retriever.get_relevant_documents(query)
+            return active_retriever.invoke(query)
 
     def _hybrid_retrieval(self, query: str, k: int = 5) -> List[Document]:
         """
@@ -907,14 +913,16 @@ class EnhancedRAGSystem:
         # Calculate fusion scores
         fusion_scores = []
         for content, score_data in doc_scores.items():
-            bm25_contribution = 0
-            if score_data["bm25_rank"] is not None:
-                bm25_contribution = weight_bm25 * (1.0 / (score_data["bm25_rank"] + 60))
+            bm25_contribution: float = 0.0
+            raw_bm25_rank = score_data["bm25_rank"]
+            if raw_bm25_rank is not None:
+                bm25_contribution = weight_bm25 * (1.0 / (raw_bm25_rank + 60))  # type: ignore[operator]
 
-            vector_contribution = 0
-            if score_data["vector_rank"] is not None:
+            vector_contribution: float = 0.0
+            raw_vector_rank = score_data["vector_rank"]
+            if raw_vector_rank is not None:
                 vector_contribution = weight_vector * (
-                    1.0 / (score_data["vector_rank"] + 60)
+                    1.0 / (raw_vector_rank + 60)  # type: ignore[operator]
                 )
 
             fusion_score = bm25_contribution + vector_contribution
@@ -924,7 +932,7 @@ class EnhancedRAGSystem:
         fusion_scores.sort(reverse=True)
 
         # Return top k documents
-        return [doc for _, doc in fusion_scores[:k]]
+        return [doc for _, doc in fusion_scores[:k]]  # type: ignore[misc]
 
     def get_relevant_documents(self, query: str, **kwargs) -> List[Document]:
         """

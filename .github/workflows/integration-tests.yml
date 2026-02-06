@@ -23,13 +23,12 @@ jobs:
     timeout-minutes: 30
 
     env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       QDRANT_URL: http://localhost:6333
-      EMBEDDING_MODEL: text-embedding-3-small
       MCP_DB_PATH: ./data/mcp_config.duckdb
       MCP_CONFIG_PATH: ./mcp.json
       OLLAMA_HOST: http://localhost:11434
+      TEST_LLM_PROVIDER: ollama
+      TEST_LLM_MODEL: qwen3:0.6b
       PYTHONUNBUFFERED: 1
       DEBUG: "true"
 
@@ -89,6 +88,17 @@ jobs:
                 }
             }
           }' > ./mcp.json
+
+      - name: Pull Ollama model
+        run: |
+          # Wait for Ollama to be ready first
+          for i in {1..60}; do
+            if curl -s http://localhost:11434/api/version > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec ollama ollama pull qwen3:0.6b
 
       - name: Wait for services to be ready
         run: |

@@ -20,20 +20,18 @@ try:
 except ImportError:
     ASYNCIO_FIXTURE = pytest.fixture  # type: ignore
 
-# Configuration for tests with real models
-TEST_OPENAI_MODEL = os.environ.get("TEST_OPENAI_MODEL", "gpt-3.5-turbo")
+# Configuration for tests — defaults to Ollama (local/cloud)
+TEST_LLM_PROVIDER = os.environ.get("TEST_LLM_PROVIDER", "ollama")
+TEST_LLM_MODEL = os.environ.get("TEST_LLM_MODEL", "gemma3:4b-cloud")
 
 
 @pytest.mark.asyncio
 async def test_create_agent_factory(knowledge_tree, experience_tree):
     """Test the agent factory function with basic parameters."""
-    if not os.environ.get("OPENAI_API_KEY"):
-        pytest.skip("OPENAI_API_KEY not set")
-
     agent_name = f"test_agent_{uuid.uuid4().hex[:8]}"
     agent_app = await create_agent(
-        provider="openai",
-        model_name=TEST_OPENAI_MODEL,
+        provider=TEST_LLM_PROVIDER,
+        model_name=TEST_LLM_MODEL,
         agent_name=agent_name,
         knowledge_tree=knowledge_tree,
         experience_tree=experience_tree,
@@ -64,13 +62,10 @@ async def test_create_agent_factory(knowledge_tree, experience_tree):
 @pytest.mark.asyncio
 async def test_agent_learning_retrieval(knowledge_tree, experience_tree):
     """Test that agent can learn from interactions and retrieve context."""
-    if not os.environ.get("OPENAI_API_KEY"):
-        pytest.skip("OPENAI_API_KEY not set")
-
     # Create agent with knowledge
     agent_app = await create_agent(
-        provider="openai",
-        model_name=TEST_OPENAI_MODEL,
+        provider=TEST_LLM_PROVIDER,
+        model_name=TEST_LLM_MODEL,
         agent_name="learning_agent_test",
         knowledge_tree=knowledge_tree,
         experience_tree=experience_tree,
@@ -162,13 +157,10 @@ async def test_agent_learning_retrieval(knowledge_tree, experience_tree):
 @pytest.mark.asyncio
 async def test_supervisor_basic(knowledge_tree, experience_tree):
     """Test Supervisor with a simple worker agent."""
-    if not os.environ.get("OPENAI_API_KEY"):
-        pytest.skip("OPENAI_API_KEY not set")
-
     # Create worker agent
     worker_agent = await create_agent(
-        provider="openai",
-        model_name=TEST_OPENAI_MODEL,
+        provider=TEST_LLM_PROVIDER,
+        model_name=TEST_LLM_MODEL,
         agent_name="worker_agent",
         knowledge_tree=knowledge_tree,
         experience_tree=experience_tree,
@@ -178,8 +170,8 @@ async def test_supervisor_basic(knowledge_tree, experience_tree):
     # Create supervisor
     supervisor = Supervisor(
         agents=[worker_agent],
-        supervisor_provider="openai",
-        supervisor_model_name=TEST_OPENAI_MODEL,
+        supervisor_provider=TEST_LLM_PROVIDER,
+        supervisor_model_name=TEST_LLM_MODEL,
         supervisor_system_prompt=(
             "You are a supervisor. Delegate the user's question to worker_agent."
         ),
@@ -214,12 +206,13 @@ async def test_supervisor_basic(knowledge_tree, experience_tree):
 @pytest.mark.asyncio
 async def test_load_mcp_tools_function(mcp_client):
     """Test the load_mcp_tools helper function with different inputs."""
-    # Test with real tools from an MCPClient
-    real_tools = mcp_client.get_tools()
-    loaded_tools = await load_mcp_tools(real_tools)
-    assert (
-        loaded_tools == real_tools
-    ), "Should return the same list when input is a list"
+    # Test with real tools from an MCPClient (requires session context)
+    async with mcp_client.session() as client:
+        real_tools = client.get_tools()
+        loaded_tools = await load_mcp_tools(real_tools)
+        assert (
+            loaded_tools == real_tools
+        ), "Should return the same list when input is a list"
 
     # Test with None
     empty_tools = await load_mcp_tools(None)
@@ -234,13 +227,6 @@ async def test_load_mcp_tools_function(mcp_client):
 @pytest.mark.asyncio
 async def test_agent_with_mcp_tools(knowledge_tree, experience_tree, mcp_client):
     """Test creating an agent with MCP tools."""
-    if not os.environ.get("OPENAI_API_KEY"):
-        pytest.skip("OPENAI_API_KEY not set")
-
-    # Skip test if Claude 3 is not available
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        pytest.skip("ANTHROPIC_API_KEY not set")
-
     # Check if MCP client works
     servers = mcp_client.list_servers()
     if not servers:
@@ -252,15 +238,14 @@ async def test_agent_with_mcp_tools(knowledge_tree, experience_tree, mcp_client)
 
     # Create agent with MCP tools
     agent_app = await create_agent(
-        provider="anthropic",
-        model_name="claude-3-haiku-20240307",
+        provider=TEST_LLM_PROVIDER,
+        model_name=TEST_LLM_MODEL,
         agent_name="mcp_tools_agent",
         knowledge_tree=knowledge_tree,
         experience_tree=experience_tree,
-        tools=mcp_client,  # Pass the MCP client
+        tools=mcp_client,
         system_prompt="You are a helpful assistant with access to tools. Use the appropriate tool when needed.",
         use_react_agent=True,
-        llm_specific_kwargs={"default_headers": {"anthropic-beta": "tools-2024-04-04"}},
     )
 
     # Verify agent was created

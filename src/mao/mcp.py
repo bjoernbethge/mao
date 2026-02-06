@@ -15,7 +15,6 @@ from urllib.parse import urljoin
 
 import httpx
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_mcp_adapters.tools import load_mcp_tools
 
 
 class ToolConfig(TypedDict):
@@ -236,34 +235,14 @@ class MCPClient(MultiServerMCPClient):
 
         return results
 
-    def load_tools(self, server_name: str) -> list[dict[str, Any]]:
-        """
-        Load tools from a specific server.
-
-        Args:
-            server_name: Name of the server to load tools from
-
-        Returns:
-            List of tool definitions
-
-        Raises:
-            ValueError: If the server does not exist
-        """
-        if server_name not in self.list_servers():
-            raise ValueError(f"Server {server_name} does not exist.")
-
-        return load_mcp_tools(self, server_name)
-
     @asynccontextmanager
     async def session(self):
         """Context manager for an MCP session with proper cleanup."""
         try:
-            async with self:
-                yield self
+            await self.__aenter__()
+            yield self
         finally:
-            # Ensure cleanup happens
-            if hasattr(self, "async_shutdown"):
-                await self.async_shutdown()
+            await self.__aexit__(None, None, None)
 
 
 # Type variable for generic function

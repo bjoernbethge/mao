@@ -21,10 +21,3 @@ updates:
       - "dependencies"
       - "github-actions"
 
-  - package-ecosystem: "docker"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    labels:
-      - "dependencies"
-      - "docker"
