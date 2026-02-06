@@ -679,10 +679,7 @@ class EnhancedRAGSystem:
         Returns:
             List of documents with contextualized content.
         """
-        CONTEXT_PROMPT = ChatPromptTemplate.from_messages(
-            [
-                HumanMessage(
-                    content="""
+        CONTEXT_PROMPT = ChatPromptTemplate.from_messages([HumanMessage(content="""
             Given the following document chunk, provide a concise context (2-3 sentences) 
             that situates this chunk within a broader scope. Focus on key entities, relationships, 
             and the main topic to improve search retrieval.
@@ -691,10 +688,7 @@ class EnhancedRAGSystem:
             {chunk_content}
             
             CONCISE CONTEXT:
-            """
-                )
-            ]
-        )
+            """)])
 
         contextualized_chunks = []
 

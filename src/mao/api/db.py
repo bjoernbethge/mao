@@ -97,8 +97,7 @@ class ConfigDB:
         """Create required tables if they don't exist"""
         with self.connection() as conn:
             # Create the agents table
-            conn.execute(
-                """
+            conn.execute("""
             CREATE TABLE IF NOT EXISTS agents (
                 id VARCHAR PRIMARY KEY,
                 name VARCHAR NOT NULL,
@@ -111,12 +110,10 @@ class ConfigDB:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-            """
-            )
+            """)
 
             # Create the tools table
-            conn.execute(
-                """
+            conn.execute("""
             CREATE TABLE IF NOT EXISTS tools (
                 id VARCHAR PRIMARY KEY,
                 name VARCHAR NOT NULL,
@@ -127,12 +124,10 @@ class ConfigDB:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-            """
-            )
+            """)
 
             # Create the servers table
-            conn.execute(
-                """
+            conn.execute("""
             CREATE TABLE IF NOT EXISTS mcp_servers (
                 id VARCHAR PRIMARY KEY,
                 name VARCHAR NOT NULL UNIQUE,
@@ -147,12 +142,10 @@ class ConfigDB:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-            """
-            )
+            """)
 
             # Create the agent-tool associations table
-            conn.execute(
-                """
+            conn.execute("""
             CREATE TABLE IF NOT EXISTS agent_tools (
                 agent_id VARCHAR NOT NULL,
                 tool_id VARCHAR NOT NULL,
@@ -160,12 +153,10 @@ class ConfigDB:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (agent_id, tool_id)
             )
-            """
-            )
+            """)
 
             # Create the supervisors table
-            conn.execute(
-                """
+            conn.execute("""
             CREATE TABLE IF NOT EXISTS supervisors (
                 id VARCHAR PRIMARY KEY,
                 agent_id VARCHAR NOT NULL,
@@ -178,12 +169,10 @@ class ConfigDB:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (agent_id) REFERENCES agents(id)
             )
-            """
-            )
+            """)
 
             # Create the teams table
-            conn.execute(
-                """
+            conn.execute("""
             CREATE TABLE IF NOT EXISTS teams (
                 id VARCHAR PRIMARY KEY,
                 name VARCHAR NOT NULL,
@@ -196,12 +185,10 @@ class ConfigDB:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (supervisor_id) REFERENCES supervisors(id)
             )
-            """
-            )
+            """)
 
             # Create the team members table
-            conn.execute(
-                """
+            conn.execute("""
             CREATE TABLE IF NOT EXISTS team_members (
                 team_id VARCHAR NOT NULL,
                 agent_id VARCHAR NOT NULL,
@@ -215,12 +202,10 @@ class ConfigDB:
                 FOREIGN KEY (team_id) REFERENCES teams(id),
                 FOREIGN KEY (agent_id) REFERENCES agents(id)
             )
-            """
-            )
+            """)
 
             # Create the configs table for global settings
-            conn.execute(
-                """
+            conn.execute("""
             CREATE TABLE IF NOT EXISTS global_configs (
                 key VARCHAR PRIMARY KEY,
                 value JSON,
@@ -228,8 +213,7 @@ class ConfigDB:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-            """
-            )
+            """)
 
     def _process_result(self, result: tuple | Any, table_name: str) -> dict[str, Any]:
         """Process a database result into a dictionary"""
