@@ -28,6 +28,7 @@ dependencies = [
     "langgraph-supervisor>=0.0.21",
     "typing-extensions>=4.13.0",
     "tenacity>=8.5.0",
+    "fastembed>=0.7.4",
 ]
 
 [tool.uv]
