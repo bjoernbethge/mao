@@ -54,7 +54,7 @@ jobs:
           docker run -d --name ollama -p 11434:11434 ollama/ollama:latest
 
       - name: Set up Node.js (for MCP server)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '22'
 
