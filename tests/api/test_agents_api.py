@@ -4,6 +4,7 @@ Tests for the Agents API endpoints.
 
 import os
 import uuid
+from pathlib import Path
 
 import duckdb
 import httpx
@@ -16,6 +17,7 @@ from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 
 from mao.api.agents import active_agents
+from mao.api.teams import active_teams
 
 TEST_LLM_PROVIDER = os.environ.get("TEST_LLM_PROVIDER", "ollama")
 TEST_LLM_MODEL = os.environ.get("TEST_LLM_MODEL", "gemma3:4b-cloud")
@@ -52,6 +54,8 @@ def test_create_agent(api_test_client):
     assert data["provider"] == agent_data["provider"]
     assert data["model_name"] == agent_data["model_name"]
     assert data["system_prompt"] == agent_data["system_prompt"]
+    assert data["skills"] is None
+    assert data["skill_paths"] is None
     assert "use_react_agent" not in data
     assert "max_tokens_trimmed" not in data
     assert "llm_specific_kwargs" not in data
@@ -237,6 +241,33 @@ def test_agents_schema_does_not_expose_legacy_columns(api_test_client):
     assert "llm_specific_kwargs" not in columns
 
 
+def test_create_agent_with_skills(api_test_client):
+    """Test creating an agent with explicit skills configuration."""
+    client, _ = api_test_client
+    skill_root = Path.cwd() / ".test_tmp" / f"agent_skills_{uuid.uuid4().hex}"
+    skill_dir = skill_root / "reviewer"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: reviewer\ndescription: Review code carefully\n---\n\nCheck for regressions.\n",
+        encoding="utf-8",
+    )
+
+    create_response = client.post(
+        "/agents",
+        json={
+            "name": "Skilled Agent",
+            "provider": "anthropic",
+            "model_name": "claude-3-haiku-20240307",
+            "skills": ["reviewer"],
+            "skill_paths": [str(skill_root)],
+        },
+    )
+    assert create_response.status_code == 201
+    payload = create_response.json()
+    assert payload["skills"] == ["reviewer"]
+    assert payload["skill_paths"] == [str(skill_root)]
+
+
 def test_start_agent_runtime(api_test_client):
     """Test starting an agent through the real runtime path."""
     client, _ = api_test_client
@@ -290,6 +321,54 @@ def test_chat_with_agent_runtime(api_test_client):
     assert payload["response"]
     assert payload["thread_id"]
     assert "details" in payload
+
+
+def test_updating_agent_invalidates_running_team(api_test_client):
+    """Updating an agent should invalidate any team runtime that depends on it."""
+    client, _ = api_test_client
+    active_agents.clear()
+    active_teams.clear()
+
+    supervisor_agent_id = client.post(
+        "/agents/",
+        json={
+            "name": "Invalidate Team Supervisor",
+            "provider": TEST_LLM_PROVIDER,
+            "model_name": TEST_LLM_MODEL,
+            "system_prompt": "Coordinate workers.",
+        },
+    ).json()["id"]
+    worker_agent_id = client.post(
+        "/agents/",
+        json={
+            "name": "Invalidate Team Worker",
+            "provider": TEST_LLM_PROVIDER,
+            "model_name": TEST_LLM_MODEL,
+            "system_prompt": "Answer briefly.",
+        },
+    ).json()["id"]
+    supervisor_id = client.post(
+        "/teams/supervisors",
+        json={"agent_id": supervisor_agent_id},
+    ).json()["id"]
+    team_id = client.post(
+        "/teams/",
+        json={"name": "Agent Update Invalidates Team", "supervisor_id": supervisor_id},
+    ).json()["id"]
+    client.post(
+        f"/teams/{team_id}/members",
+        json={"agent_id": worker_agent_id, "role": "assistant"},
+    )
+
+    assert client.post(f"/teams/{team_id}/start").status_code == 200
+    assert team_id in active_teams
+
+    update_response = client.put(
+        f"/agents/{worker_agent_id}",
+        json={"system_prompt": "Updated prompt"},
+    )
+    assert update_response.status_code == 200
+    assert team_id not in active_teams
 
 
 @pytest.mark.asyncio

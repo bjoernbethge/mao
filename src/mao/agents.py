@@ -4,10 +4,12 @@ import logging
 import os
 import json
 import uuid
+import asyncio
+import time
 from typing import Any
 
 from dotenv import load_dotenv
-from pydantic import Field, create_model
+from pydantic import BaseModel, Field, create_model
 
 from langchain.agents import create_agent as lc_create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
@@ -19,7 +21,6 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, StructuredTool, tool
 
 from langgraph.runtime import Runtime
-from langgraph.types import Command
 from typing_extensions import Annotated, NotRequired
 
 from tenacity import (
@@ -30,12 +31,42 @@ from tenacity import (
 )
 
 from mao.mcp import MCPClient
+from mao.observability import build_trace_metadata, langsmith_trace, merge_trace_tags
+from mao.skills import SkillRegistry
 from mao.checkpoint import get_checkpointer
 from mao.storage import ExperienceTree, KnowledgeTree
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+
+class ParallelDelegationTask(BaseModel):
+    agent_name: str = Field(description="Tool/agent name to delegate to")
+    query: str = Field(description="Task or question for that agent")
+
+
+def _normalize_terms(values: list[str] | None) -> list[str]:
+    if not values:
+        return []
+    return [value.strip().lower() for value in values if isinstance(value, str) and value.strip()]
+
+
+def evaluate_member_policy(member: dict[str, Any], query: str) -> tuple[bool, str | None]:
+    params = member.get("params") or {}
+    if not params.get("allow_supervisor_delegation", True):
+        return False, "supervisor delegation disabled"
+
+    lowered_query = query.lower()
+    blocked = _normalize_terms(params.get("blocked_keywords"))
+    for term in blocked:
+        if term in lowered_query:
+            return False, f"blocked keyword '{term}'"
+
+    required = _normalize_terms(params.get("routing_keywords"))
+    if required and not any(term in lowered_query for term in required):
+        return False, "query does not match routing keywords"
+    return True, None
 
 
 def _approximate_token_count(messages: list[BaseMessage]) -> int:
@@ -70,7 +101,7 @@ class RetrievalLearningMiddleware(AgentMiddleware[RuntimeAgentState, None, Any])
                 break
 
         context_str = _ensure_str(await self.agent._retrieve_context(user_input))
-        system_content = self.agent.system_prompt
+        system_content = self.agent._build_system_prompt()
         if context_str:
             system_content = f"{system_content}\n{context_str}"
 
@@ -134,10 +165,8 @@ def _build_invoke_config(
     metadata: dict[str, Any] | None = None,
 ) -> RunnableConfig:
     config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
-    if tags:
-        config["tags"] = tags
-    if metadata:
-        config["metadata"] = metadata
+    config["tags"] = merge_trace_tags(tags)
+    config["metadata"] = build_trace_metadata(thread_id=thread_id, metadata=metadata)
     config["run_name"] = run_name
     return config
 
@@ -250,6 +279,8 @@ class Agent:
         agent_name: str,
         tools: MCPClient | list[dict[str, Any]] | None = None,
         system_prompt: str | None = None,
+        skills: list[str] | None = None,
+        skill_paths: list[str] | None = None,
         stream: bool = False,
     ):
         self.llm = llm_instance
@@ -257,8 +288,11 @@ class Agent:
         self.configured_tools = tools
         self.loaded_tools: list[Any] = []
         self.system_prompt = system_prompt or "You are a helpful assistant."
+        self.enabled_skills = skills or []
+        self.skill_paths = skill_paths or []
         self.knowledge_tree: KnowledgeTree | None = None
         self.experience_tree: ExperienceTree | None = None
+        self.skill_registry: SkillRegistry | None = None
         self.memory = get_checkpointer()
         self.stream = stream
         self.agent_runnable = None
@@ -364,6 +398,86 @@ class Agent:
 
         return tools
 
+    def _build_skill_tools(self) -> list[BaseTool]:
+        if not self.skill_registry:
+            return []
+
+        registry = self.skill_registry
+        tools: list[BaseTool] = []
+
+        @tool
+        def list_skills() -> str:
+            """List the discoverable skills available to this agent."""
+            skills = registry.list_skills()
+            if not skills:
+                return "No discoverable skills found."
+            return "\n".join(
+                f"- {skill.name}: {skill.description} ({skill.path})"
+                for skill in skills
+            )
+
+        tools.append(list_skills)
+
+        @tool
+        def load_skill(skill_name: str) -> str:
+            """Load a skill's full SKILL.md contents when you need exact workflow details."""
+            raw = registry.read_skill(skill_name)
+            if not raw:
+                return f"Skill '{skill_name}' not found."
+            return raw
+
+        tools.append(load_skill)
+
+        if self.experience_tree:
+            et = self.experience_tree
+
+            @tool
+            async def recommend_skills(task: str) -> str:
+                """Recommend relevant skills for a task using skill metadata and prior skill insights."""
+                matches = await registry.recommend_skills(task, experience_tree=et)
+                if not matches:
+                    return "No relevant skills found."
+                lines = []
+                for match in matches:
+                    reasons = ", ".join(match["reasons"]) if match["reasons"] else "metadata match"
+                    lines.append(
+                        f"- {match['name']}: {match['description']} [{reasons}]"
+                    )
+                return "\n".join(lines)
+
+            tools.append(recommend_skills)
+
+            @tool
+            async def save_skill_insight(skill_name: str, insight: str) -> str:
+                """Persist a reusable lesson, caveat, or workflow note for a skill."""
+                saved = await registry.save_skill_insight(
+                    skill_name=skill_name,
+                    insight=insight,
+                    experience_tree=et,
+                )
+                if not saved:
+                    return f"Skill '{skill_name}' not found or no experience store available."
+                return "Skill insight saved."
+
+            tools.append(save_skill_insight)
+
+        return tools
+
+    def _build_system_prompt(self) -> str:
+        sections = [self.system_prompt.strip()]
+        if self.skill_registry:
+            guidance = self.skill_registry.render_guidance()
+            if guidance:
+                sections.append(guidance)
+            selected_skills = self.skill_registry.render_selected_skills(self.enabled_skills)
+            if selected_skills:
+                sections.append(
+                    "## Enabled Skills\n"
+                    "The following local skills are preloaded. Follow them when relevant.\n\n"
+                    f"{selected_skills}"
+                )
+        return "\n\n".join(section for section in sections if section).strip()
+
     async def init_agent(self):
         try:
             safe_name = self.name.replace("-", "_").replace(" ", "_")
@@ -373,11 +487,20 @@ class Agent:
             self.experience_tree = await ExperienceTree.create(
                 collection_name=f"experience_{safe_name}"
             )
+            self.skill_registry = SkillRegistry(skill_paths=self.skill_paths)
 
             self.loaded_tools = await self._load_mcp_tools()
             rag_tools = self._build_rag_tools()
+            skill_tools = self._build_skill_tools()
             self.loaded_tools.extend(rag_tools)
-            logger.info("Agent '%s' loaded %d tools (%d RAG)", self.name, len(self.loaded_tools), len(rag_tools))
+            self.loaded_tools.extend(skill_tools)
+            logger.info(
+                "Agent '%s' loaded %d tools (%d RAG, %d skill tools)",
+                self.name,
+                len(self.loaded_tools),
+                len(rag_tools),
+                len(skill_tools),
+            )
             all_tools = _dicts_to_tools(self.loaded_tools)
             middleware: list[Any] = [RetrievalLearningMiddleware(self)]
             interrupt_on = _parse_hitl_tools()
@@ -387,7 +510,7 @@ class Agent:
             self.agent_runnable = lc_create_agent(
                 model=self.llm,
                 tools=all_tools,
-                system_prompt=self.system_prompt,
+                system_prompt=self._build_system_prompt(),
                 middleware=middleware,
                 checkpointer=self.memory,
                 name=self.name,
@@ -428,17 +551,112 @@ class Supervisor:
             "parallel_tool_calls": parallel_tool_calls,
             **supervisor_kwargs,
         }
+        self.parallel_tool_calls = parallel_tool_calls
         self.memory = get_checkpointer()
         self.app = None
         self.supervisor_agent = None
+        self.metrics: dict[str, Any] = {
+            "delegations_total": 0,
+            "delegation_failures": 0,
+            "parallel_delegations_total": 0,
+            "parallel_tasks_total": 0,
+            "per_agent": {},
+            "recent_delegations": [],
+        }
 
     async def _load_supervisor_mcp_tools(self) -> list[dict[str, Any]]:
         return await load_mcp_tools(self.supervisor_tools)
 
     def _build_agent_tools(self) -> list[BaseTool]:
         tools: list[BaseTool] = []
+        agent_tool_map: dict[str, Any] = {}
+
+        async def invoke_worker(
+            *,
+            worker: Any,
+            worker_name: str,
+            worker_agent_id: str | None,
+            worker_role: str | None,
+            query: str,
+            config: RunnableConfig | None,
+            delegated_via: str,
+        ) -> str:
+            parent_thread_id = None
+            if config:
+                parent_thread_id = (
+                    config.get("configurable", {}) or {}
+                ).get("thread_id")
+            child_thread_id = (
+                f"{parent_thread_id}:{worker_name}"
+                if parent_thread_id
+                else f"{worker_name}:{uuid.uuid4().hex}"
+            )
+            started_at = time.perf_counter()
+            self.metrics["delegations_total"] += 1
+            per_agent = self.metrics["per_agent"].setdefault(
+                worker_name,
+                {
+                    "agent_id": worker_agent_id,
+                    "delegations": 0,
+                    "failures": 0,
+                    "last_latency_ms": None,
+                },
+            )
+            per_agent["delegations"] += 1
+            try:
+                response = await worker.ainvoke(
+                    {"messages": [{"role": "user", "content": query}]},
+                    config={"configurable": {"thread_id": child_thread_id}},
+                )
+                if isinstance(response, dict) and response.get("messages"):
+                    last_message = response["messages"][-1]
+                    if hasattr(last_message, "content"):
+                        content = str(last_message.content)
+                    elif isinstance(last_message, dict):
+                        content = str(last_message.get("content", ""))
+                    else:
+                        content = str(last_message)
+                elif hasattr(response, "content"):
+                    content = str(response.content)
+                else:
+                    content = str(response)
+                status = "ok"
+                return content
+            except Exception as exc:
+                self.metrics["delegation_failures"] += 1
+                per_agent["failures"] += 1
+                status = "error"
+                content = (
+                    f"Delegation to '{worker_name}' failed. "
+                    f"Error: {exc.__class__.__name__}: {exc}"
+                )
+                logger.exception("Delegation to worker '%s' failed", worker_name)
+                return content
+            finally:
+                latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
+                per_agent["last_latency_ms"] = latency_ms
+                self.metrics["recent_delegations"].append(
+                    {
+                        "agent": worker_name,
+                        "agent_id": worker_agent_id,
+                        "role": worker_role,
+                        "thread_id": child_thread_id,
+                        "delegated_via": delegated_via,
+                        "status": status,
+                        "latency_ms": latency_ms,
+                    }
+                )
+                self.metrics["recent_delegations"] = self.metrics["recent_delegations"][-20:]
+
         for agent in self.agents:
-            agent_name = getattr(agent, "name", None) or f"agent_{len(tools) + 1}"
+            worker = agent.get("app") if isinstance(agent, dict) else agent
+            agent_name = (
+                agent.get("name")
+                if isinstance(agent, dict)
+                else getattr(agent, "name", None)
+            ) or f"agent_{len(tools) + 1}"
+            agent_role = agent.get("role") if isinstance(agent, dict) else None
+            agent_id = agent.get("agent_id") if isinstance(agent, dict) else None
             safe_tool_name = (
                 agent_name.lower().replace(" ", "_").replace("-", "_")
             )
@@ -451,44 +669,89 @@ class Supervisor:
                 query: str,
                 config: RunnableConfig | None = None,
                 *,
-                _agent=agent,
+                _agent=worker,
                 _agent_name=agent_name,
+                _agent_id=agent_id,
+                _agent_role=agent_role,
+                _agent_params=(agent.get("params") if isinstance(agent, dict) else None),
             ) -> str:
-                parent_thread_id = None
-                if config:
-                    parent_thread_id = (
-                        config.get("configurable", {}) or {}
-                    ).get("thread_id")
-                child_thread_id = (
-                    f"{parent_thread_id}:{_agent_name}"
-                    if parent_thread_id
-                    else f"{_agent_name}:{uuid.uuid4().hex}"
+                allowed, reason = evaluate_member_policy(
+                    {
+                        "agent_id": _agent_id,
+                        "name": _agent_name,
+                        "role": _agent_role,
+                        "params": _agent_params,
+                    },
+                    query,
                 )
-                response = await _agent.ainvoke(
-                    {"messages": [{"role": "user", "content": query}]},
-                    config={"configurable": {"thread_id": child_thread_id}},
+                if not allowed:
+                    return (
+                        f"Delegation to '{_agent_name}' denied by policy"
+                        f" ({reason})."
+                    )
+                return await invoke_worker(
+                    worker=_agent,
+                    worker_name=_agent_name,
+                    worker_agent_id=_agent_id,
+                    worker_role=_agent_role,
+                    query=query,
+                    config=config,
+                    delegated_via="single",
                 )
-                if isinstance(response, dict) and response.get("messages"):
-                    last_message = response["messages"][-1]
-                    if hasattr(last_message, "content"):
-                        return str(last_message.content)
-                    if isinstance(last_message, dict):
-                        return str(last_message.get("content", ""))
-                if hasattr(response, "content"):
-                    return str(response.content)
-                return str(response)
 
-            tools.append(
-                StructuredTool.from_function(
-                    coroutine=call_agent,
-                    name=safe_tool_name,
-                    description=(
-                        f"Delegate work to agent '{agent_name}'. "
-                        f"Use this when the task matches that agent's specialization."
-                    ),
-                    args_schema=input_model,
-                )
+            tool_instance = StructuredTool.from_function(
+                coroutine=call_agent,
+                name=safe_tool_name,
+                description=(
+                    f"Delegate work to agent '{agent_name}'"
+                    + (f" with role '{agent_role}'." if agent_role else ".")
+                    + " Use this when the task matches that agent's specialization."
+                ),
+                args_schema=input_model,
             )
+            tools.append(tool_instance)
+            agent_tool_map[safe_tool_name] = {
+                "worker": worker,
+                "agent_name": agent_name,
+                "agent_id": agent_id,
+                "role": agent_role,
+            }
+
+        if self.parallel_tool_calls and len(agent_tool_map) > 1:
+
+            @tool
+            async def parallel_delegate(tasks: list[ParallelDelegationTask]) -> str:
+                """Delegate independent subtasks to multiple agents in parallel and return their results."""
+                if not tasks:
+                    return "No parallel tasks provided."
+                self.metrics["parallel_delegations_total"] += 1
+                self.metrics["parallel_tasks_total"] += len(tasks)
+                coroutines = []
+                labels = []
+                for task in tasks:
+                    target = agent_tool_map.get(task.agent_name)
+                    if not target:
+                        coroutines.append(asyncio.sleep(0, result=f"Unknown agent '{task.agent_name}'"))
+                        labels.append(task.agent_name)
+                        continue
+                    labels.append(target["agent_name"])
+                    coroutines.append(
+                        invoke_worker(
+                            worker=target["worker"],
+                            worker_name=target["agent_name"],
+                            worker_agent_id=target["agent_id"],
+                            worker_role=target.get("role"),
+                            query=task.query,
+                            config=None,
+                            delegated_via="parallel",
+                        )
+                    )
+                results = await asyncio.gather(*coroutines)
+                return "\n\n".join(
+                    f"[{labels[index]}]\n{result}" for index, result in enumerate(results)
+                )
+
+            tools.append(parallel_delegate)
         return tools
 
     def _build_supervisor_prompt(self, agent_tools: list[BaseTool]) -> str:
@@ -501,8 +764,19 @@ class Supervisor:
             "Available delegate agents:\n"
             f"{agent_list}\n\n"
             "Delegate to the most relevant agent tool when specialized work is needed. "
+            "If multiple independent subtasks can run concurrently, use parallel_delegate. "
             "After any tool call, return a direct final answer to the user."
         )
+
+    def get_metrics(self) -> dict[str, Any]:
+        return {
+            "delegations_total": self.metrics["delegations_total"],
+            "delegation_failures": self.metrics["delegation_failures"],
+            "parallel_delegations_total": self.metrics["parallel_delegations_total"],
+            "parallel_tasks_total": self.metrics["parallel_tasks_total"],
+            "per_agent": dict(self.metrics["per_agent"]),
+            "recent_delegations": list(self.metrics["recent_delegations"]),
+        }
 
     @retry(
         stop=stop_after_attempt(3),
@@ -565,7 +839,12 @@ class Supervisor:
                 "supervisor_model_name": self.supervisor_model_name,
             },
         )
-        return await self.app.ainvoke({"messages": messages}, config=config_dict)
+        with langsmith_trace(
+            run_name="supervisor_invoke",
+            tags=config_dict.get("tags"),
+            metadata=config_dict.get("metadata"),
+        ):
+            return await self.app.ainvoke({"messages": messages}, config=config_dict)
 
 
 async def create_agent(
@@ -574,6 +853,8 @@ async def create_agent(
     agent_name: str | None = None,
     system_prompt: str | None = None,
     tools: MCPClient | list[dict[str, Any]] | None = None,
+    skills: list[str] | None = None,
+    skill_paths: list[str] | None = None,
     temperature: float = 0.0,
     stream: bool = False,
 ) -> Any:
@@ -593,6 +874,8 @@ async def create_agent(
         agent_name=agent_name,
         tools=tools,
         system_prompt=system_prompt,
+        skills=skills,
+        skill_paths=skill_paths,
         stream=stream,
     )
 

@@ -5,7 +5,9 @@ Helper functions for API endpoints to reduce code duplication.
 import logging
 from typing import Any
 
-from ..agents import create_agent
+from langchain_core.tools import BaseTool
+
+from ..agents import create_agent, load_mcp_tools
 from ..mcp import MCPClient
 from .db import ConfigDB
 
@@ -81,16 +83,31 @@ async def create_and_start_agent(
     agent_config: dict[str, Any],
     active_agents: dict[str, dict[str, Any]],
 ) -> Any:
+    agent_app = await build_agent_app(db, agent_id, agent_config)
+    active_agents[agent_id] = {"agent": agent_app, "config": agent_config}
+    return agent_app
+
+
+async def build_agent_app(
+    db: ConfigDB,
+    agent_id: str,
+    agent_config: dict[str, Any],
+    extra_tools: list[BaseTool] | None = None,
+) -> Any:
     agent_tools = await db.get_agent_tools(agent_id, enabled_only=True)
     mcp_client = await _build_mcp_client_from_db(db, agent_tools) if agent_tools else None
+    tools: MCPClient | list[dict[str, Any] | BaseTool] | None = mcp_client
+    if extra_tools:
+        loaded_tools = await load_mcp_tools(mcp_client)
+        tools = list(loaded_tools) + list(extra_tools)
 
     agent_app = await create_agent(
         provider=agent_config["provider"],
         model_name=agent_config["model_name"],
         agent_name=agent_config["name"],
         system_prompt=agent_config.get("system_prompt"),
-        tools=mcp_client,
+        tools=tools,
+        skills=agent_config.get("skills"),
+        skill_paths=agent_config.get("skill_paths"),
     )
-
-    active_agents[agent_id] = {"agent": agent_app, "config": agent_config}
     return agent_app

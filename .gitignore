@@ -98,3 +98,12 @@ Thumbs.db
 data/*
 !data/.gitkeep
 uv.lock
+
+# Local tool config
+.mcp.json
+
+# Test temp files
+.test_tmp/
+
+# Local docs (not published to repo)
+docs/

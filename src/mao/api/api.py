@@ -5,6 +5,7 @@ Provides a REST API for managing and interacting with MCP agents.
 
 import logging
 import os
+from contextlib import suppress
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -14,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .db import ConfigDB
+from ..observability import next_request_id, reset_request_context, set_request_context
 
 # Global state for active agents
 active_agents: dict[str, dict[str, Any]] = {}
@@ -99,15 +101,22 @@ class MCPAgentsAPI(FastAPI):
         @self.middleware("http")
         async def log_requests(request: Request, call_next):
             """Log request and response details"""
+            request_id = request.headers.get("x-request-id") or next_request_id()
+            token = set_request_context(
+                request_id=request_id,
+                http_method=request.method,
+                http_path=request.url.path,
+            )
             # Log request
             logging.debug(f"Request: {request.method} {request.url.path}")
+            try:
+                response = await call_next(request)
+            finally:
+                with suppress(Exception):
+                    reset_request_context(token)
 
-            # Process request
-            response = await call_next(request)
-
-            # Log response
+            response.headers["x-request-id"] = request_id
             logging.debug(f"Response: {response.status_code}")
-
             return response
 
     def _setup_exception_handlers(self):
@@ -189,7 +198,7 @@ class MCPAgentsAPI(FastAPI):
                     "teams": "/teams - Team management",
                     "supervisors": "/teams/supervisors - Supervisor management",
                     "mcp": "/mcp - MCP server and tool management",
-                    "config": "/config - Global configuration",
+                    "config": "/config - Global configuration and skill discovery",
                     "import/export": "/export, /import - Configuration import/export",
                 },
                 "documentation": "/docs - Swagger UI documentation",

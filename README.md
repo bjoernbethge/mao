@@ -25,6 +25,7 @@ A modern framework for orchestrating AI agents. Self-contained — no external s
 - **MCP Integration** — Model Context Protocol for agent-tool communication
 - **Multi-LLM Support** — OpenAI, Anthropic, Ollama
 - **Knowledge & Experience** — Automatic vector-based memory per agent
+- **Local Skills** — Claude/Codex-style `SKILL.md` discovery from project and home directories
 - **Team Management** — Organize agents into collaborative teams with supervisors
 - **FastAPI** — REST API for agent management
 
@@ -78,12 +79,17 @@ MCP_DB_PATH=./data/mcp_config.duckdb
 MCP_CONFIG_PATH=./.mcp.json
 OLLAMA_HOST=http://localhost:11434
 
+# Optional skill discovery overrides (`;` on Windows, `:` on Unix)
+MAO_SKILL_PATHS=./.codex/skills;./.claude/skills
+
 # HITL for selected tool names (comma-separated)
 MAO_HITL_TOOLS=send_email,delete_record
 
-# LangSmith tracing
+# LangSmith tracing / observability
 LANGSMITH_API_KEY=lsv2_...
 LANGSMITH_PROJECT=mao-agents
+LANGSMITH_TRACING=true
+LANGSMITH_TRACING_SAMPLING_RATE=0.25
 LANGCHAIN_TRACING_V2=true
 ```
 
@@ -102,6 +108,44 @@ Runtime notes:
   for structured output
 - The same chat endpoints accept optional `approval_decisions` to resume
   human-in-the-loop tool approvals
+- Agents support optional `skills` and `skill_paths` fields in create/update payloads
+- Discoverable skills are listed via `/config/skills`
+- Skill discovery checks project and home roots such as `.codex/skills`,
+  `.claude/skills`, and `.agents/skills`
+- Workspace guidance from `AGENTS.md` and `CLAUDE.md` is injected into the
+  agent system prompt when found
+- Team members support typed communication policies via `params`
+  with fields such as:
+  - `allow_supervisor_delegation`
+  - `routing_keywords`
+  - `blocked_keywords`
+  - `can_receive_direct`
+  - `allow_peer_messages`
+  - `can_message_roles`
+  - `can_message_agents`
+  - `accept_messages_from_roles`
+- `/teams/{id}/chat` supports direct member routing via `direct_to_agent_id`
+- Team chat traces now include structured events for:
+  - supervisor delegations
+  - direct user-to-member routing
+  - peer member-to-member messages
+
+### Team Policy Example
+
+```json
+{
+  "agent_id": "agent_writer_1",
+  "role": "writer",
+  "params": {
+    "allow_supervisor_delegation": true,
+    "routing_keywords": ["draft", "write", "summary"],
+    "blocked_keywords": ["delete", "shutdown"],
+    "can_receive_direct": true,
+    "allow_peer_messages": true,
+    "accept_messages_from_roles": ["researcher", "editor"]
+  }
+}
+```
 
 ## Docker
 

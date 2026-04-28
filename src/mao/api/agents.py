@@ -5,12 +5,13 @@ Agent-related API endpoints.
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from langgraph.types import Command
 
 from .api import active_agents, get_config_db
 from .db import ConfigDB
 from .helpers import create_and_start_agent, extract_response_text
+from .teams import _invalidate_teams_for_agent
 from .models import (
     AgentCreate,
     AgentMessage,
@@ -20,6 +21,7 @@ from .models import (
     ToolResponse,
 )
 from ..agents import _build_invoke_config
+from ..observability import langsmith_trace
 
 # Create router
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -37,6 +39,8 @@ async def create_new_agent(agent: AgentCreate, db: ConfigDB = Depends(get_config
         provider=agent.provider,
         model_name=agent.model_name,
         system_prompt=agent.system_prompt,
+        skills=agent.skills,
+        skill_paths=agent.skill_paths,
     )
 
     return await db.get_agent(agent_id)
@@ -96,6 +100,8 @@ async def update_agent_by_id(
     update_data = {k: v for k, v in agent.model_dump().items() if v is not None}
     if update_data:
         await db.update_agent(agent_id, **update_data)
+        active_agents.pop(agent_id, None)
+        _invalidate_teams_for_agent(agent_id)
 
     return await db.get_agent(agent_id)
 
@@ -113,6 +119,7 @@ async def delete_agent_by_id(
     # Stop running agent if active
     if agent_id in active_agents:
         active_agents.pop(agent_id, None)
+    _invalidate_teams_for_agent(agent_id)
 
     await db.delete_agent(agent_id)
     return None
@@ -155,7 +162,9 @@ async def stop_agent(agent_id: str = Path(..., description="Agent ID")):
 
 @router.post("/{agent_id}/chat", response_model=AgentResponseMessage)
 async def chat_with_agent(
-    message: AgentMessage, agent_id: str = Path(..., description="Agent ID")
+    message: AgentMessage,
+    request: Request,
+    agent_id: str = Path(..., description="Agent ID"),
 ):
     """Sends a message to a running agent"""
     if agent_id not in active_agents:
@@ -175,18 +184,33 @@ async def chat_with_agent(
             thread_id=thread_id,
             run_name="agent_chat",
             tags=["mao", "agent", agent_id],
-            metadata={"agent_id": agent_id},
+            metadata={
+                "agent_id": agent_id,
+                "agent_name": active_agents[agent_id]["config"]["name"],
+                "provider": active_agents[agent_id]["config"]["provider"],
+                "model_name": active_agents[agent_id]["config"]["model_name"],
+                "skills": active_agents[agent_id]["config"].get("skills") or [],
+                "http_path": request.url.path,
+            },
         )
-        if message.approval_decisions:
-            response = await agent_app.ainvoke(
-                Command(resume={"decisions": message.approval_decisions}),
-                config=config,
-            )
-        else:
-            response = await agent_app.ainvoke(
-                {"messages": [formatted_message], "response_schema": message.response_schema},
-                config=config,
-            )
+        with langsmith_trace(
+            run_name="agent_chat",
+            tags=config.get("tags"),
+            metadata=config.get("metadata"),
+        ):
+            if message.approval_decisions:
+                response = await agent_app.ainvoke(
+                    Command(resume={"decisions": message.approval_decisions}),
+                    config=config,
+                )
+            else:
+                response = await agent_app.ainvoke(
+                    {
+                        "messages": [formatted_message],
+                        "response_schema": message.response_schema,
+                    },
+                    config=config,
+                )
 
         # Extract response
         response_message = "No response received."

@@ -70,7 +70,6 @@ logs/
 *.log
 
 # Project metadata
-PYPI_SETUP.md
 Procfile
 .github/
 .pre-commit-config.yaml

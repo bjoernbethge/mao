@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from .api import get_config_db
 from .db import ConfigDB
 from .models import Config
+from ..skills import SkillRegistry
 
 # Create router
 config_router = APIRouter(prefix="/config", tags=["config"])
@@ -25,6 +26,25 @@ def set_config_value(config: Config, db: ConfigDB = Depends(get_config_db)):
     """Sets a global configuration value"""
     db.set_config(config.key, config.value, config.description)
     return None
+
+
+@config_router.get("/skills")
+def list_discoverable_skills():
+    """List discoverable skills and workspace guidance files."""
+    registry = SkillRegistry()
+    return {
+        "skill_roots": registry.skill_roots,
+        "guidance_files": registry.guidance_files,
+        "skills": [
+            {
+                "name": skill.name,
+                "description": skill.description,
+                "path": skill.path,
+                "root": skill.root,
+            }
+            for skill in registry.list_skills()
+        ],
+    }
 
 
 @config_router.get("/{key}")

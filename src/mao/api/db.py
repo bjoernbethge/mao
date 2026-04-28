@@ -41,7 +41,7 @@ class ConfigDB:
     _instances: dict[str, "ConfigDB"] = {}
     _lock = threading.Lock()
     _agent_select_columns = (
-        "id, name, provider, model_name, system_prompt, created_at, updated_at"
+        "id, name, provider, model_name, system_prompt, skills, skill_paths, created_at, updated_at"
     )
     _agent_legacy_columns = (
         "use_react_agent",
@@ -112,6 +112,8 @@ class ConfigDB:
                 provider VARCHAR NOT NULL,
                 model_name VARCHAR NOT NULL,
                 system_prompt TEXT,
+                skills JSON,
+                skill_paths JSON,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -235,6 +237,8 @@ class ConfigDB:
             "provider": "VARCHAR NOT NULL DEFAULT ''",
             "model_name": "VARCHAR NOT NULL DEFAULT ''",
             "system_prompt": "TEXT",
+            "skills": "JSON",
+            "skill_paths": "JSON",
             "created_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
             "updated_at": "TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
         }
@@ -266,6 +270,8 @@ class ConfigDB:
                 "provider",
                 "model_name",
                 "system_prompt",
+                "skills",
+                "skill_paths",
                 "created_at",
                 "updated_at",
             ],
@@ -361,6 +367,8 @@ class ConfigDB:
             "headers",
             "env_vars",
             "parameters",
+            "skills",
+            "skill_paths",
         ]
         for field in json_fields:
             if field in data and data[field] is not None:
@@ -422,6 +430,8 @@ class ConfigDB:
         provider: str,
         model_name: str,
         system_prompt: str | None = None,
+        skills: list[str] | None = None,
+        skill_paths: list[str] | None = None,
     ) -> str:
         """
         Create a new agent configuration asynchronously.
@@ -438,8 +448,8 @@ class ConfigDB:
         async with self.async_connection() as conn:
             conn.execute(
                 """
-            INSERT INTO agents (id, name, provider, model_name, system_prompt)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO agents (id, name, provider, model_name, system_prompt, skills, skill_paths)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
                 [
                     agent_id,
@@ -447,6 +457,8 @@ class ConfigDB:
                     provider,
                     model_name,
                     system_prompt,
+                    json.dumps(skills) if skills is not None else None,
+                    json.dumps(skill_paths) if skill_paths is not None else None,
                 ],
             )
 
@@ -498,7 +510,7 @@ class ConfigDB:
 
         async with self.async_connection() as conn:
             query, params = self._build_update_query(
-                "agents", "id", agent_id, [], **kwargs
+                "agents", "id", agent_id, ["skills", "skill_paths"], **kwargs
             )
             conn.execute(query, params)
             return True
@@ -1072,6 +1084,8 @@ class ConfigDB:
         provider: str,
         model_name: str,
         system_prompt: str | None = None,
+        skills: list[str] | None = None,
+        skill_paths: list[str] | None = None,
     ) -> str:
         """
         Create a new agent configuration.
@@ -1088,8 +1102,8 @@ class ConfigDB:
         with self.connection() as conn:
             conn.execute(
                 """
-            INSERT INTO agents (id, name, provider, model_name, system_prompt)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO agents (id, name, provider, model_name, system_prompt, skills, skill_paths)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
                 [
                     agent_id,
@@ -1097,6 +1111,8 @@ class ConfigDB:
                     provider,
                     model_name,
                     system_prompt,
+                    json.dumps(skills) if skills is not None else None,
+                    json.dumps(skill_paths) if skill_paths is not None else None,
                 ],
             )
 

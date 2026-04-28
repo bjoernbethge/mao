@@ -4,8 +4,9 @@ version = "0.1.0"
 description = "Multi Agent Orchestration - A modern framework for orchestrating AI agents"
 readme = "README.md"
 authors = [
-    { name = "Björn Bethge", email = "" }
+    { name = "Björn Bethge", email = "bjoern.bethge@gmail.com" }
 ]
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",

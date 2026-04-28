@@ -6,7 +6,7 @@ import os
 import uuid
 
 from mao.api.agents import active_agents
-from mao.api.teams import active_teams
+from mao.api.teams import _peer_message_allowed, active_teams
 
 TEST_LLM_PROVIDER = os.environ.get("TEST_LLM_PROVIDER", "ollama")
 TEST_LLM_MODEL = os.environ.get("TEST_LLM_MODEL", "gemma3:4b-cloud")
@@ -555,3 +555,424 @@ def test_chat_with_team_runtime(api_test_client):
     assert payload["response"]
     assert payload["thread_id"]
     assert "details" in payload
+    assert "team_metrics" in payload["details"]
+    assert payload["details"]["team_metrics"]["chats"] == 1
+    assert any(event["route"] == "supervisor" for event in payload["trace"])
+
+
+def test_team_metrics_endpoint(api_test_client):
+    """Test team runtime metrics endpoint before and after chat activity."""
+    client, _ = api_test_client
+    active_agents.clear()
+    active_teams.clear()
+
+    supervisor_agent_id = client.post(
+        "/agents/",
+        json={
+            "name": "Metrics Supervisor",
+            "provider": TEST_LLM_PROVIDER,
+            "model_name": TEST_LLM_MODEL,
+            "system_prompt": "Coordinate workers.",
+        },
+    ).json()["id"]
+    worker_agent_id = client.post(
+        "/agents/",
+        json={
+            "name": "Metrics Worker",
+            "provider": TEST_LLM_PROVIDER,
+            "model_name": TEST_LLM_MODEL,
+            "system_prompt": "Answer briefly.",
+        },
+    ).json()["id"]
+    supervisor_id = client.post(
+        "/teams/supervisors",
+        json={"agent_id": supervisor_agent_id, "parallel_tool_calls": True},
+    ).json()["id"]
+    team_id = client.post(
+        "/teams/",
+        json={"name": "Metrics Team", "supervisor_id": supervisor_id},
+    ).json()["id"]
+    client.post(
+        f"/teams/{team_id}/members",
+        json={"agent_id": worker_agent_id, "role": "assistant"},
+    )
+
+    inactive_response = client.get(f"/teams/{team_id}/metrics")
+    assert inactive_response.status_code == 200
+    assert inactive_response.json()["active"] is False
+
+    start_response = client.post(f"/teams/{team_id}/start")
+    assert start_response.status_code == 200
+
+    active_response = client.get(f"/teams/{team_id}/metrics")
+    assert active_response.status_code == 200
+    payload = active_response.json()
+    assert payload["active"] is True
+    assert payload["metrics"]["starts"] == 1
+    assert payload["metrics"]["supervisor"]["parallel_delegations_total"] >= 0
+
+
+def test_team_runtime_invalidated_on_team_update(api_test_client):
+    """Updating a running team should invalidate its cached runtime."""
+    client, _ = api_test_client
+    active_agents.clear()
+    active_teams.clear()
+
+    supervisor_agent_id = client.post(
+        "/agents/",
+        json={
+            "name": "Invalidate Supervisor",
+            "provider": TEST_LLM_PROVIDER,
+            "model_name": TEST_LLM_MODEL,
+            "system_prompt": "Coordinate workers.",
+        },
+    ).json()["id"]
+    worker_agent_id = client.post(
+        "/agents/",
+        json={
+            "name": "Invalidate Worker",
+            "provider": TEST_LLM_PROVIDER,
+            "model_name": TEST_LLM_MODEL,
+            "system_prompt": "Answer briefly.",
+        },
+    ).json()["id"]
+    supervisor_id = client.post(
+        "/teams/supervisors",
+        json={"agent_id": supervisor_agent_id},
+    ).json()["id"]
+    team_id = client.post(
+        "/teams/",
+        json={"name": "Invalidate Team", "supervisor_id": supervisor_id},
+    ).json()["id"]
+    client.post(
+        f"/teams/{team_id}/members",
+        json={"agent_id": worker_agent_id, "role": "assistant"},
+    )
+
+    start_response = client.post(f"/teams/{team_id}/start")
+    assert start_response.status_code == 200
+    assert team_id in active_teams
+
+    update_response = client.put(
+        f"/teams/{team_id}",
+        json={"description": "runtime changed"},
+    )
+    assert update_response.status_code == 200
+    assert team_id not in active_teams
+
+
+def test_team_runtime_invalidated_on_member_change(api_test_client):
+    """Changing team membership should invalidate cached runtime."""
+    client, _ = api_test_client
+    active_agents.clear()
+    active_teams.clear()
+
+    supervisor_agent_id = client.post(
+        "/agents/",
+        json={
+            "name": "Member Invalidate Supervisor",
+            "provider": TEST_LLM_PROVIDER,
+            "model_name": TEST_LLM_MODEL,
+            "system_prompt": "Coordinate workers.",
+        },
+    ).json()["id"]
+    worker_agent_id = client.post(
+        "/agents/",
+        json={
+            "name": "Member Invalidate Worker",
+            "provider": TEST_LLM_PROVIDER,
+            "model_name": TEST_LLM_MODEL,
+            "system_prompt": "Answer briefly.",
+        },
+    ).json()["id"]
+    supervisor_id = client.post(
+        "/teams/supervisors",
+        json={"agent_id": supervisor_agent_id},
+    ).json()["id"]
+    team_id = client.post(
+        "/teams/",
+        json={"name": "Member Invalidate Team", "supervisor_id": supervisor_id},
+    ).json()["id"]
+    client.post(
+        f"/teams/{team_id}/members",
+        json={"agent_id": worker_agent_id, "role": "assistant"},
+    )
+
+    assert client.post(f"/teams/{team_id}/start").status_code == 200
+    assert team_id in active_teams
+
+    update_response = client.put(
+        f"/teams/{team_id}/members/{worker_agent_id}",
+        json={"role": "researcher"},
+    )
+    assert update_response.status_code == 200
+    assert team_id not in active_teams
+
+
+def test_team_direct_routing_to_member(api_test_client):
+    """A team message can be routed directly to a specific member."""
+    client, _ = api_test_client
+    active_agents.clear()
+    active_teams.clear()
+
+    supervisor_agent_id = client.post(
+        "/agents/",
+        json={
+            "name": "Direct Supervisor",
+            "provider": TEST_LLM_PROVIDER,
+            "model_name": TEST_LLM_MODEL,
+            "system_prompt": "Coordinate workers.",
+        },
+    ).json()["id"]
+    worker_agent_id = client.post(
+        "/agents/",
+        json={
+            "name": "Direct Worker",
+            "provider": TEST_LLM_PROVIDER,
+            "model_name": TEST_LLM_MODEL,
+            "system_prompt": "Reply with a short factual answer.",
+        },
+    ).json()["id"]
+    supervisor_id = client.post(
+        "/teams/supervisors",
+        json={"agent_id": supervisor_agent_id},
+    ).json()["id"]
+    team_id = client.post(
+        "/teams/",
+        json={"name": "Direct Routing Team", "supervisor_id": supervisor_id},
+    ).json()["id"]
+    client.post(
+        f"/teams/{team_id}/members",
+        json={"agent_id": worker_agent_id, "role": "assistant"},
+    )
+
+    response = client.post(
+        f"/teams/{team_id}/chat",
+        json={
+            "content": "What is 2 + 2?",
+            "direct_to_agent_id": worker_agent_id,
+            "thread_id": f"team_direct_{uuid.uuid4().hex}",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["responding_agent_id"]
+    assert payload["trace"][0]["route"] == "direct"
+    assert payload["trace"][0]["event_type"] == "direct_message"
+    assert payload["details"]["team_metrics"]["direct_messages"] == 1
+
+
+def test_team_direct_routing_policy_denied(api_test_client):
+    """Direct routing should enforce member policy constraints."""
+    client, _ = api_test_client
+    active_agents.clear()
+    active_teams.clear()
+
+    supervisor_agent_id = client.post(
+        "/agents/",
+        json={
+            "name": "Policy Supervisor",
+            "provider": TEST_LLM_PROVIDER,
+            "model_name": TEST_LLM_MODEL,
+            "system_prompt": "Coordinate workers.",
+        },
+    ).json()["id"]
+    worker_agent_id = client.post(
+        "/agents/",
+        json={
+            "name": "Policy Worker",
+            "provider": TEST_LLM_PROVIDER,
+            "model_name": TEST_LLM_MODEL,
+            "system_prompt": "Reply with a short factual answer.",
+        },
+    ).json()["id"]
+    supervisor_id = client.post(
+        "/teams/supervisors",
+        json={"agent_id": supervisor_agent_id},
+    ).json()["id"]
+    team_id = client.post(
+        "/teams/",
+        json={"name": "Policy Team", "supervisor_id": supervisor_id},
+    ).json()["id"]
+    client.post(
+        f"/teams/{team_id}/members",
+        json={
+            "agent_id": worker_agent_id,
+            "role": "assistant",
+            "params": {
+                "can_receive_direct": False,
+            },
+        },
+    )
+
+    response = client.post(
+        f"/teams/{team_id}/chat",
+        json={
+            "content": "What is 2 + 2?",
+            "direct_to_agent_id": worker_agent_id,
+        },
+    )
+    assert response.status_code == 403
+
+
+def test_peer_message_role_policy():
+    """Peer message policies should enforce sender and receiver constraints."""
+    sender = {
+        "agent_id": "agent_a",
+        "role": "researcher",
+        "params": {
+            "allow_peer_messages": True,
+            "can_message_roles": ["writer"],
+        },
+    }
+    receiver = {
+        "agent_id": "agent_b",
+        "role": "writer",
+        "params": {
+            "allow_peer_messages": True,
+            "accept_messages_from_roles": ["researcher"],
+        },
+    }
+    allowed, reason = _peer_message_allowed(sender, receiver)
+    assert allowed is True
+    assert reason is None
+
+    blocked_receiver = {
+        "agent_id": "agent_c",
+        "role": "critic",
+        "params": {"allow_peer_messages": True},
+    }
+    allowed, reason = _peer_message_allowed(sender, blocked_receiver)
+    assert allowed is False
+    assert reason == "target role not allowed"
+
+
+def test_team_member_policy_rejects_unknown_role_reference(api_test_client):
+    """Policy role references must point to known team roles."""
+    client, _ = api_test_client
+
+    team_id = client.post("/teams/", json={"name": "Policy Ref Team"}).json()["id"]
+    agent_id = client.post(
+        "/agents/",
+        json={
+            "name": "Policy Ref Agent",
+            "provider": "openai",
+            "model_name": "gpt-4",
+        },
+    ).json()["id"]
+
+    response = client.post(
+        f"/teams/{team_id}/members",
+        json={
+            "agent_id": agent_id,
+            "role": "writer",
+            "params": {
+                "allow_peer_messages": True,
+                "can_message_roles": ["reviewer"],
+            },
+        },
+    )
+    assert response.status_code == 400
+    assert "Unknown team role references" in response.json()["detail"]
+
+
+def test_team_member_policy_rejects_unknown_agent_reference(api_test_client):
+    """Policy agent references must point to known team members."""
+    client, _ = api_test_client
+
+    team_id = client.post("/teams/", json={"name": "Policy Agent Ref Team"}).json()["id"]
+    agent_id = client.post(
+        "/agents/",
+        json={
+            "name": "Policy Agent Ref",
+            "provider": "openai",
+            "model_name": "gpt-4",
+        },
+    ).json()["id"]
+
+    response = client.post(
+        f"/teams/{team_id}/members",
+        json={
+            "agent_id": agent_id,
+            "role": "writer",
+            "params": {
+                "allow_peer_messages": True,
+                "can_message_agents": ["agent_missing"],
+            },
+        },
+    )
+    assert response.status_code == 400
+    assert "Unknown team agent references" in response.json()["detail"]
+
+
+def test_team_member_policy_respects_team_config_flags(api_test_client):
+    """Member policy should be rejected when it conflicts with team config."""
+    client, _ = api_test_client
+
+    team_id = client.post(
+        "/teams/",
+        json={
+            "name": "Team Config Policy Guard",
+            "config": {"allow_direct_messages": False},
+        },
+    ).json()["id"]
+    agent_id = client.post(
+        "/agents/",
+        json={
+            "name": "Direct Policy Agent",
+            "provider": "openai",
+            "model_name": "gpt-4",
+        },
+    ).json()["id"]
+
+    response = client.post(
+        f"/teams/{team_id}/members",
+        json={
+            "agent_id": agent_id,
+            "role": "writer",
+            "params": {"can_receive_direct": True},
+        },
+    )
+    assert response.status_code == 400
+    assert "Team configuration disables direct messages" in response.json()["detail"]
+
+
+def test_team_member_policy_requires_some_supervisor_delegation(api_test_client):
+    """A supervised team must keep at least one active delegable member."""
+    client, _ = api_test_client
+
+    supervisor_agent_id = client.post(
+        "/agents/",
+        json={
+            "name": "Delegation Guard Supervisor",
+            "provider": "openai",
+            "model_name": "gpt-4",
+        },
+    ).json()["id"]
+    worker_agent_id = client.post(
+        "/agents/",
+        json={
+            "name": "Delegation Guard Worker",
+            "provider": "openai",
+            "model_name": "gpt-4",
+        },
+    ).json()["id"]
+    supervisor_id = client.post(
+        "/teams/supervisors",
+        json={"agent_id": supervisor_agent_id},
+    ).json()["id"]
+    team_id = client.post(
+        "/teams/",
+        json={"name": "Delegation Guard Team", "supervisor_id": supervisor_id},
+    ).json()["id"]
+
+    response = client.post(
+        f"/teams/{team_id}/members",
+        json={
+            "agent_id": worker_agent_id,
+            "role": "writer",
+            "params": {"allow_supervisor_delegation": False},
+        },
+    )
+    assert response.status_code == 400
+    assert "At least one active team member must allow supervisor delegation" in response.json()["detail"]
